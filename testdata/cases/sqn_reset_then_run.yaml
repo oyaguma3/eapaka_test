@@ -1,0 +1,10 @@
+version: 1
+name: sqn_reset_then_run
+identity: "0440100123456789@wlan.mnc010.mcc440.3gppnetwork.org"
+sqn:
+  reset: true
+  persist: true
+expect:
+  result: accept
+  mppe:
+    require_present: true

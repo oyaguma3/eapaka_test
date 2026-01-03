@@ -1,0 +1,10 @@
+version: 1
+name: success_aka_prime
+identity: "6440100123456789@wlan.mnc010.mcc440.3gppnetwork.org"
+eap:
+  aka_prime:
+    net_name: "wlan.mnc010.mcc440.3gppnetwork.org"
+expect:
+  result: accept
+  mppe:
+    require_present: true

@@ -1,0 +1,7 @@
+version: 1
+name: perm_id_req_with_override
+identity: "7reauth-id@example"
+eap:
+  permanent_identity_override: "0440100123456789@wlan.mnc010.mcc440.3gppnetwork.org"
+expect:
+  result: accept

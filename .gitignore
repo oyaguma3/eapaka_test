@@ -1,0 +1,7 @@
+/docs/
+/.gocache/
+/.vscode/
+/eapaka_test
+*.exe
+*.test
+*.out

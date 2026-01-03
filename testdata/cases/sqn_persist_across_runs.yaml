@@ -1,0 +1,9 @@
+version: 1
+name: sqn_persist_across_runs
+identity: "0440100123456789@wlan.mnc010.mcc440.3gppnetwork.org"
+sqn:
+  persist: true
+expect:
+  result: accept
+  mppe:
+    require_present: true
