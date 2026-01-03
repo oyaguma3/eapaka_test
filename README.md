@@ -32,6 +32,8 @@ go build -o eapaka_test ./cmd/eapaka_test
 ./eapaka_test -c configs/example.yaml run testdata/cases/success_aka.yaml
 ```
 
+パケットキャプチャで実通信を確認したい場合は、WSL 環境での手順を `USER_GUIDE.md` の項目9に記載しています。
+
 ## 終了コード
 
 - 0: PASS（期待結果と一致）

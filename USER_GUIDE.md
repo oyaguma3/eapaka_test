@@ -147,15 +147,56 @@ verbose trace では形式不正時に警告が出ます。
 - 既定の運用は `require_present: true`（存在確認）
 - 値一致検証は固定テストデータ運用時のみ使用
 
-## 8. 注意点
-
-- `--unsafe-log` / `trace.unsafe_log: true` は機密情報を出力するため、CI では非推奨です。
-- `sqn_store.mode=file` では、同一の `path` を複数プロセスで同時使用しないでください。
-- `method_mismatch_policy=strict` は EAP メソッドの不一致を FAIL とするため、テストケース側の指定に注意してください。
-
 ## 7. よくある使い方
 
 ```bash
 ./eapaka_test -c configs/example.yaml run testdata/cases/perm_id_req_from_pseudonym.yaml
 ./eapaka_test -c configs/example.yaml --unsafe-log run testdata/cases/success_aka.yaml
 ```
+
+## 8. 注意点
+
+- `--unsafe-log` / `trace.unsafe_log: true` は機密情報を出力するため、CI では非推奨です。
+- `sqn_store.mode=file` では、同一の `path` を複数プロセスで同時使用しないでください。
+- `method_mismatch_policy=strict` は EAP メソッドの不一致を FAIL とするため、テストケース側の指定に注意してください。
+
+## 9. WSL 内での RADIUS パケットキャプチャ
+
+WSL2（Ubuntu）内で eapaka_test と RADIUS サーバを動かす前提の場合、ループバック通信は Windows 側から見えないことが多いため、WSL 内でキャプチャする方法が確実です。
+
+### 方法 A: WSL でキャプチャして Windows Wireshark で開く（推奨）
+
+1) tcpdump をインストール
+
+```bash
+sudo apt update
+sudo apt install -y tcpdump
+```
+
+2) WSL 内でキャプチャ開始（WSL 内同士の通信なら `lo` が最適）
+
+```bash
+sudo tcpdump -i lo -w /mnt/c/Users/<WindowsUser>/Desktop/radius.pcap 'udp port 1812 or 1813'
+```
+
+3) eapaka_test を実行し、通信させる  
+4) Ctrl+C で停止し、Windows の Wireshark で `radius.pcap` を開く
+
+### 方法 B: WSL の Wireshark GUI で直接キャプチャ
+
+1) Wireshark をインストール
+
+```bash
+sudo apt update
+sudo apt install -y wireshark
+```
+
+2) 権限付与（または `sudo wireshark` で起動）
+
+```bash
+sudo setcap cap_net_raw,cap_net_admin=eip /usr/bin/dumpcap
+sudo usermod -aG wireshark $USER
+```
+
+3) 再ログイン後、Wireshark を起動し `lo`（または `any`）でキャプチャ  
+4) 表示フィルタに `udp.port == 1812 || udp.port == 1813` を指定
