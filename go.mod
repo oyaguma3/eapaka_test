@@ -1,6 +1,6 @@
 module github.com/oyaguma3/eapaka_test
 
-go 1.25
+go 1.25.0
 
 require (
 	github.com/oyaguma3/go-eapaka v0.0.0-20260111164821-550c12572f6d
