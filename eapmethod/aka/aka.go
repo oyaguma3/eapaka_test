@@ -179,7 +179,11 @@ func (m *Method) handleChallenge(req *eapaka.Packet, sess *eap.Session) (*eap.Pa
 		return nil, fmt.Errorf("aka: inner identity is required")
 	}
 
-	kAut, err := m.deriveKAut(identity, ck, ik, netName)
+	kdfAttrs, err := selectKdfResponseAttrs(req)
+	if err != nil {
+		return nil, err
+	}
+	kAut, err := m.deriveKAut(identity, ck, ik, netName, autn)
 	if err != nil {
 		return nil, err
 	}
@@ -215,15 +219,19 @@ func (m *Method) handleChallenge(req *eapaka.Packet, sess *eap.Session) (*eap.Pa
 		}
 	}
 
+	attrs := []eapaka.Attribute{
+		&eapaka.AtRes{Res: res},
+	}
+	if len(kdfAttrs) > 0 {
+		attrs = append(attrs, kdfAttrs...)
+	}
+	attrs = append(attrs, &eapaka.AtMac{MAC: make([]byte, 16)})
 	resp := &eapaka.Packet{
 		Code:       eapaka.CodeResponse,
 		Identifier: req.Identifier,
 		Type:       req.Type,
 		Subtype:    eapaka.SubtypeChallenge,
-		Attributes: []eapaka.Attribute{
-			&eapaka.AtRes{Res: res},
-			&eapaka.AtMac{MAC: make([]byte, 16)},
-		},
+		Attributes: attrs,
 	}
 	if err := resp.CalculateAndSetMac(kAut); err != nil {
 		return nil, err
@@ -262,17 +270,43 @@ func (m *Method) extractChallengeParams(req *eapaka.Packet) ([]byte, []byte, str
 	return rand, autn, netName, nil
 }
 
+func selectKdfResponseAttrs(req *eapaka.Packet) ([]eapaka.Attribute, error) {
+	if req.Type != eapaka.TypeAKAPrime {
+		return nil, nil
+	}
+	offer := eapaka.KdfValuesFromAttributes(req.Attributes)
+	if len(offer) == 0 {
+		return nil, nil
+	}
+	if err := eapaka.ValidateKdfOffer(offer); err != nil {
+		return nil, fmt.Errorf("aka: invalid AT_KDF offer: %w", err)
+	}
+	supported := eapaka.KDFAKAPrimeWithCKIK
+	if offer[0] == supported {
+		return nil, nil
+	}
+	for _, v := range offer {
+		if v == supported {
+			return []eapaka.Attribute{&eapaka.AtKdf{KDF: supported}}, nil
+		}
+	}
+	return nil, fmt.Errorf("aka: unsupported AT_KDF offer")
+}
+
 func (m *Method) computeVectors(rand []byte) ([]byte, []byte, []byte, []byte, error) {
 	mil := milenage.NewWithOPc(m.ki, m.opc, rand, 0, m.amf)
 	return mil.F2345()
 }
 
-func (m *Method) deriveKAut(identity string, ck, ik []byte, netName string) ([]byte, error) {
+func (m *Method) deriveKAut(identity string, ck, ik []byte, netName string, autn []byte) ([]byte, error) {
 	if m.methodType == eap.TypeAKA {
 		keys := eapaka.DeriveKeysAKA(identity, ck, ik)
 		return keys.K_aut, nil
 	}
-	ckPrime, ikPrime := eapaka.DeriveCKPrimeIKPrime(ck, ik, netName)
+	ckPrime, ikPrime, err := eapaka.DeriveCKPrimeIKPrime(ck, ik, netName, autn)
+	if err != nil {
+		return nil, err
+	}
 	keys := eapaka.DeriveKeysAKAPrime(identity, ckPrime, ikPrime)
 	return keys.K_aut, nil
 }

@@ -6,6 +6,6 @@ expect:
   mppe:
     require_present: true
     # 固定テストデータ運用時にのみ指定する（MPPE暗号化済み生値）。
-    # 取得した生値を hex: または b64: で貼り付ける。
+    # RFC 9048 KDF 対応後は、Access-Accept の MPPE 属性生値を再取得して貼り付ける。
     send_key: "hex:"
     recv_key: "hex:"

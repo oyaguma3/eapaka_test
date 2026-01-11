@@ -200,6 +200,12 @@ func (l *Logger) dumpAKAAttributes(payload []byte) {
 		if kdfInput, ok := attr.(*eapaka.AtKdfInput); ok {
 			fmt.Fprintf(l.Out, "aka_kdf_input=%s\n", kdfInput.NetworkName)
 		}
+		if kdf, ok := attr.(*eapaka.AtKdf); ok {
+			fmt.Fprintf(l.Out, "aka_kdf=%d\n", kdf.KDF)
+		}
+		if bidding, ok := attr.(*eapaka.AtBidding); ok {
+			fmt.Fprintf(l.Out, "aka_bidding_aka_prime=%t\n", bidding.SupportsAKAPrime())
+		}
 		if randAttr, ok := attr.(*eapaka.AtRand); ok {
 			fmt.Fprintf(l.Out, "aka_rand=%s\n", maskAKABytes(randAttr.Rand, l.Unsafe))
 		}
