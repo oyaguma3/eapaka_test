@@ -166,11 +166,16 @@ func evaluateExpect(tc testcase.Case, resp *radiusc.Response, accepted bool) (in
 		return fail(1, "expect result=%s got=%s", tc.Expect.Result, actual)
 	}
 	if !accepted && tc.Expect.RejectHintContains != "" {
+		checkPresence := true
+		if tc.Expect.RejectHintCheckPresence != nil {
+			checkPresence = *tc.Expect.RejectHintCheckPresence
+		}
 		hint := rfc2865.ReplyMessage_GetString(resp.Packet)
 		if hint == "" {
-			return fail(1, "reject_hint_contains missing Reply-Message")
-		}
-		if !strings.Contains(hint, tc.Expect.RejectHintContains) {
+			if checkPresence {
+				return fail(1, "reject_hint_contains missing Reply-Message")
+			}
+		} else if !strings.Contains(hint, tc.Expect.RejectHintContains) {
 			return fail(1, "reject_hint_contains mismatch: want %q got %q", tc.Expect.RejectHintContains, hint)
 		}
 	}

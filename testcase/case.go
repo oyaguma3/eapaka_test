@@ -51,9 +51,10 @@ type SQN struct {
 }
 
 type Expect struct {
-	Result             string `yaml:"result"`
-	RejectHintContains string `yaml:"reject_hint_contains"`
-	MPPE               MPPE   `yaml:"mppe"`
+	Result                  string `yaml:"result"`
+	RejectHintContains      string `yaml:"reject_hint_contains"`
+	RejectHintCheckPresence *bool  `yaml:"reject_hint_check_presence"`
+	MPPE                    MPPE   `yaml:"mppe"`
 }
 
 type MPPE struct {

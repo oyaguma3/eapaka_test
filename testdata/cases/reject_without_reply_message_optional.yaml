@@ -1,0 +1,7 @@
+version: 1
+name: reject_without_reply_message_optional
+identity: "0440100123456789@wlan.mnc010.mcc440.3gppnetwork.org"
+expect:
+  result: reject
+  reject_hint_contains: "method mismatch"
+  reject_hint_check_presence: false

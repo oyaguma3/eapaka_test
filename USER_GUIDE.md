@@ -121,6 +121,7 @@ expect:
 - `expect.*`: 期待結果
   - `result`: `accept|reject`
   - `reject_hint_contains`: Reply-Message の部分一致
+  - `reject_hint_check_presence`: `reject_hint_contains` 使用時に Reply-Message 必須とするか（既定: true）
   - `mppe.require_present`: MPPE 属性の存在確認
   - `mppe.send_key` / `mppe.recv_key`: `hex:` / `b64:` で固定値一致
 
