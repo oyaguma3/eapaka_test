@@ -166,7 +166,7 @@ func evaluateExpect(tc testcase.Case, resp *radiusc.Response, accepted bool) (in
 		return fail(1, "expect result=%s got=%s", tc.Expect.Result, actual)
 	}
 	if !accepted && tc.Expect.RejectHintContains != "" {
-		checkPresence := true
+		checkPresence := false
 		if tc.Expect.RejectHintCheckPresence != nil {
 			checkPresence = *tc.Expect.RejectHintCheckPresence
 		}

@@ -1,45 +1,58 @@
 # eapaka_test
 
-RADIUS 経由で EAP-AKA / EAP-AKA' を実行する、サーバ自動テスト向け CLI ツールです。
-外部利用者向けの概要と使い方を本 README にまとめています。
+[English](README.md) | [Japanese](README_jp.md)
 
-## 目的と特徴
+`eapaka_test` is a CLI tool for automated server testing of EAP-AKA / EAP-AKA' over RADIUS.
+This README provides a quick overview for external users.
 
-- RADIUS/EAP-AKA/AKA' サーバの統合テストを CLI で簡単に実行
-- EAP-AKA / EAP-AKA' の両方に対応
-- outer/inner identity を分離して管理
-- `AT_PERMANENT_ID_REQ` に即時応答（ポリシー指定可）
-- SQN を永続化して連続実行時の同期を維持
-- MPPE キーの presence check と一致検証に対応
+## Purpose and Features
 
-## 必要環境
+- Run integration tests for RADIUS/EAP-AKA/AKA' servers from CLI
+- Support both EAP-AKA and EAP-AKA'
+- Manage outer/inner identities separately
+- Immediately handle `AT_PERMANENT_ID_REQ` (policy configurable)
+- Persist SQN state across runs
+- Verify MPPE key presence and optional exact value matching
 
-- Go 1.25.x（1.25 以上）
+## Requirements
 
-## ビルド
+- Go 1.25.x (1.25 or newer)
+
+## Build
 
 ```bash
 go build -o eapaka_test ./cmd/eapaka_test
 ```
 
-## クイックスタート
+## Quick Start
 
-1. 設定ファイルを用意（例: `configs/example.yaml`）
-2. テストケースを用意（例: `testdata/cases/success_aka.yaml`）
-3. 実行
+1. Prepare a config file (example: `configs/example.yaml`)
+2. Prepare a test case file (example: `testdata/cases/success_aka.yaml`)
+3. Run
 
 ```bash
 ./eapaka_test -c configs/example.yaml run testdata/cases/success_aka.yaml
 ```
 
-パケットキャプチャで実通信を確認したい場合は、WSL 環境での手順を `USER_GUIDE.md` の項目9に記載しています。
+If you need packet capture in WSL, see section 9 in `USER_GUIDE.md`.
 
-## 終了コード
+## Exit Codes
 
-- 0: PASS（期待結果と一致）
-- 1: FAIL（期待結果不一致）
-- 2: ERROR（設定不備、通信エラー、パース不能など）
+- 0: PASS (matches expected result)
+- 1: FAIL (expected/actual mismatch)
+- 2: ERROR (invalid config, communication error, parse error, etc.)
 
-## ユーザーガイド
+## Guides
 
-詳細なオプションやテストケース仕様は `USER_GUIDE.md` を参照してください。
+- English guide: `USER_GUIDE.md`
+- Japanese guide: `USER_GUIDE_jp.md`
+
+## Recent Updates (2026-02-20)
+
+- Updated `go-eapaka` dependency to include RFC-compliant `AT_RAND`/`AT_AUTN` handling and stronger attribute validation.
+  - `github.com/oyaguma3/go-eapaka`:
+    `v0.0.0-20260111164821-550c12572f6d` ->
+    `v0.0.0-20260220135024-5edf0d7a8e21`
+- Changed default `expect.reject_hint_check_presence` from `true` to `false`.
+  - This avoids unnecessary FAIL when reject responses do not include `Reply-Message` in common deployments.
+  - For strict behavior, set `reject_hint_check_presence: true` in each case.

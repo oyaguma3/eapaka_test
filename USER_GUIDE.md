@@ -1,26 +1,28 @@
 # User Guide
 
-このドキュメントは外部利用者向けの使い方ガイドです。
+[English](USER_GUIDE.md) | [Japanese](USER_GUIDE_jp.md)
 
-## 1. 実行方法
+This document explains how to use `eapaka_test`.
+
+## 1. Run Command
 
 ```bash
 ./eapaka_test -c <config.yaml> run <case.yaml>
 ```
 
-## 2. CLI オプション
+## 2. CLI Options
 
-- `-c <path>`: 設定ファイル（必須）
-- `run <case>`: テストケースファイル（必須）
-- `--unsafe-log`: 機密情報（RAND/AUTN/RES など）のマスクを解除して出力
-- `--trace-eap-hex`: verbose で EAP hex dump を強制有効
-- `--trace-radius-attrs`: verbose で RADIUS 属性一覧を強制有効
+- `-c <path>`: config file path (required)
+- `run <case>`: test case file path (required)
+- `--unsafe-log`: print sensitive values (RAND/AUTN/RES, etc.) without masking
+- `--trace-eap-hex`: force EAP hex dump in verbose mode
+- `--trace-radius-attrs`: force RADIUS attribute dump in verbose mode
 
-## 3. 設定ファイル（config）
+## 3. Config File
 
-例: `configs/example.yaml`
+Example: `configs/example.yaml`
 
-### 設定例
+### Example
 
 ```yaml
 radius:
@@ -57,43 +59,43 @@ sqn_store:
   path: "/tmp/eapaka_test-sqn.json"
 ```
 
-主な項目:
+Main fields:
 
 - `radius.server_addr`: `<host>:<port>`
-- `radius.secret`: RADIUS 共有秘密
-- `radius.timeout_ms`: タイムアウト（ミリ秒）
-- `radius.retries`: 再送回数
+- `radius.secret`: RADIUS shared secret
+- `radius.timeout_ms`: timeout in milliseconds
+- `radius.retries`: retry count
 
-- `radius_attrs.*`: 追加 RADIUS 属性（任意）
+- `radius_attrs.*`: optional extra RADIUS attributes
   - `nas_ip_address`
   - `nas_identifier`
-  - `called_station_id`（形式は後述）
+  - `called_station_id` (format below)
   - `calling_station_id`
 
-- `eap.*`: EAP ポリシー
+- `eap.*`: EAP policies
   - `method_mismatch_policy`: `strict|warn|allow`
   - `outer_identity_update_on_permanent_req`: `true|false`
   - `permanent_id_policy`: `always|conservative|deny`
-  - `aka_prime.net_name`: AKA' の Network Name（fallback）
+  - `aka_prime.net_name`: AKA' network name fallback
 
-- `identity.realm`: Permanent ID 生成に使用する realm
+- `identity.realm`: realm used to build Permanent ID
 
-- `sim.*`: USIM パラメータ
+- `sim.*`: USIM parameters
   - `imsi`
-  - `ki`（16 bytes hex）
-  - `opc`（16 bytes hex）
-  - `amf`（2 bytes hex）
-  - `sqn_initial_hex`（48 bit / 12 hex）
+  - `ki` (16-byte hex)
+  - `opc` (16-byte hex)
+  - `amf` (2-byte hex)
+  - `sqn_initial_hex` (48-bit / 12 hex chars)
 
-- `sqn_store.*`: SQN 永続化
+- `sqn_store.*`: SQN persistence
   - `mode`: `file|memory`
-  - `path`: file モード時に必須
+  - `path`: required when `mode=file`
 
-## 4. テストケース（case）
+## 4. Test Case File
 
-例: `testdata/cases/success_aka.yaml`
+Example: `testdata/cases/success_aka.yaml`
 
-### テストケース例
+### Example
 
 ```yaml
 version: 1
@@ -108,96 +110,96 @@ expect:
     require_present: true
 ```
 
-主な項目:
+Main fields:
 
-- `identity`: 開始時の outer identity（必須）
-- `radius.*`: config を上書きする RADIUS 設定（任意）
-- `eap.*`: config を上書きする EAP 設定（任意）
-  - `permanent_identity_override`: Permanent ID の完全指定
+- `identity`: initial outer identity (required)
+- `radius.*`: optional per-case override for radius settings
+- `eap.*`: optional per-case override for eap settings
+  - `permanent_identity_override`: fully override Permanent ID
 
-- `sqn.reset`: SQN 初期化
-- `sqn.persist`: 永続化を行うか（未指定は true）
+- `sqn.reset`: reset SQN
+- `sqn.persist`: whether to persist SQN (default: true)
 
-- `expect.*`: 期待結果
+- `expect.*`: expected result
   - `result`: `accept|reject`
-  - `reject_hint_contains`: Reply-Message の部分一致
-  - `reject_hint_check_presence`: `reject_hint_contains` 使用時に Reply-Message 必須とするか（既定: true）
-  - `mppe.require_present`: MPPE 属性の存在確認
-  - `mppe.send_key` / `mppe.recv_key`: `hex:` / `b64:` で固定値一致
+  - `reject_hint_contains`: substring check against `Reply-Message`
+  - `reject_hint_check_presence`: require `Reply-Message` when `reject_hint_contains` is used (default: false)
+  - `mppe.require_present`: require MPPE attributes
+  - `mppe.send_key` / `mppe.recv_key`: exact match (`hex:` or `b64:`)
 
-- `trace.*`: トレース
+- `trace.*`: tracing
   - `level`: `normal|verbose`
-  - `unsafe_log`: 機密情報のマスク解除（CI では非推奨）
-  - `dump_eap_hex`: EAP hex dump 出力（verbose 時のみ）
-  - `dump_radius_attrs`: RADIUS 属性一覧出力（verbose 時のみ）
-  - `save_path`: トレース出力先ファイル
+  - `unsafe_log`: disable masking (not recommended in CI)
+  - `dump_eap_hex`: dump EAP hex (verbose only)
+  - `dump_radius_attrs`: dump RADIUS attributes (verbose only)
+  - `save_path`: output trace file path
 
-## 5. called_station_id の形式
+## 5. `called_station_id` Format
 
-`called_station_id` は以下の形式が推奨です。
+Recommended format:
 
 - `xx-xx-xx-xx-xx-xx:MySSID`
-  - MAC 部は 17 文字固定
-  - `:` は 1 回のみ
+  - MAC part must be fixed 17 chars
+  - `:` must appear exactly once
 
-verbose trace では形式不正時に警告が出ます。
+Verbose trace warns when format is invalid.
 
-## 6. MPPE の扱い
+## 6. MPPE Handling
 
-- Access-Accept には `MS-MPPE-Send-Key` / `MS-MPPE-Recv-Key` が必須
-- 既定の運用は `require_present: true`（存在確認）
-- 値一致検証は固定テストデータ運用時のみ使用
+- Access-Accept must include `MS-MPPE-Send-Key` and `MS-MPPE-Recv-Key`
+- Default operation is `require_present: true` (presence check)
+- Exact value matching is intended only for fixed test vectors
 
-## 7. よくある使い方
+## 7. Common Usage
 
 ```bash
 ./eapaka_test -c configs/example.yaml run testdata/cases/perm_id_req_from_pseudonym.yaml
 ./eapaka_test -c configs/example.yaml --unsafe-log run testdata/cases/success_aka.yaml
 ```
 
-## 8. 注意点
+## 8. Notes
 
-- `--unsafe-log` / `trace.unsafe_log: true` は機密情報を出力するため、CI では非推奨です。
-- `sqn_store.mode=file` では、同一の `path` を複数プロセスで同時使用しないでください。
-- `method_mismatch_policy=strict` は EAP メソッドの不一致を FAIL とするため、テストケース側の指定に注意してください。
+- `--unsafe-log` / `trace.unsafe_log: true` exposes sensitive data; avoid in CI.
+- With `sqn_store.mode=file`, do not share the same `path` across concurrent processes.
+- `method_mismatch_policy=strict` fails on EAP method mismatch; ensure case data is consistent.
 
-## 9. WSL 内での RADIUS パケットキャプチャ
+## 9. Capturing RADIUS Packets in WSL
 
-WSL2（Ubuntu）内で eapaka_test と RADIUS サーバを動かす前提の場合、ループバック通信は Windows 側から見えないことが多いため、WSL 内でキャプチャする方法が確実です。
+When running both `eapaka_test` and your RADIUS server inside WSL2 (Ubuntu), loopback traffic is often invisible from Windows capture interfaces. Capture inside WSL for reliability.
 
-### 方法 A: WSL でキャプチャして Windows Wireshark で開く（推奨）
+### Method A: Capture in WSL and open on Windows Wireshark (recommended)
 
-1) tcpdump をインストール
+1. Install tcpdump
 
 ```bash
 sudo apt update
 sudo apt install -y tcpdump
 ```
 
-2) WSL 内でキャプチャ開始（WSL 内同士の通信なら `lo` が最適）
+2. Start capture in WSL (`lo` is best for local WSL traffic)
 
 ```bash
 sudo tcpdump -i lo -w /mnt/c/Users/<WindowsUser>/Desktop/radius.pcap 'udp port 1812 or 1813'
 ```
 
-3) eapaka_test を実行し、通信させる  
-4) Ctrl+C で停止し、Windows の Wireshark で `radius.pcap` を開く
+3. Run `eapaka_test` and generate traffic
+4. Stop capture with Ctrl+C and open `radius.pcap` in Windows Wireshark
 
-### 方法 B: WSL の Wireshark GUI で直接キャプチャ
+### Method B: Capture directly with WSL Wireshark GUI
 
-1) Wireshark をインストール
+1. Install Wireshark
 
 ```bash
 sudo apt update
 sudo apt install -y wireshark
 ```
 
-2) 権限付与（または `sudo wireshark` で起動）
+2. Grant capture permissions (or run `sudo wireshark`)
 
 ```bash
 sudo setcap cap_net_raw,cap_net_admin=eip /usr/bin/dumpcap
 sudo usermod -aG wireshark $USER
 ```
 
-3) 再ログイン後、Wireshark を起動し `lo`（または `any`）でキャプチャ  
-4) 表示フィルタに `udp.port == 1812 || udp.port == 1813` を指定
+3. Re-login, launch Wireshark, and capture on `lo` (or `any`)
+4. Use display filter `udp.port == 1812 || udp.port == 1813`

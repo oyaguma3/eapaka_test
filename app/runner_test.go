@@ -30,20 +30,17 @@ func TestRejectHintContains(t *testing.T) {
 	}
 }
 
-func TestRejectHintMissingReplyMessageDefaultFails(t *testing.T) {
+func TestRejectHintMissingReplyMessageDefaultPasses(t *testing.T) {
 	packet := radius.New(radius.CodeAccessReject, []byte("secret"))
 	resp := &radiusc.Response{Code: radius.CodeAccessReject, Packet: packet}
 	caseData := testcase.Case{Expect: testcase.Expect{Result: "reject", RejectHintContains: "not allowed"}}
 
 	exitCode, err := evaluateExpect(caseData, resp, false)
-	if err == nil {
-		t.Fatalf("expected error for missing Reply-Message")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if exitCode != 1 {
-		t.Fatalf("expected fail exit code 1, got %d", exitCode)
-	}
-	if !strings.Contains(err.Error(), "missing Reply-Message") {
-		t.Fatalf("expected missing Reply-Message error, got %v", err)
+	if exitCode != 0 {
+		t.Fatalf("expected pass by default when Reply-Message is missing")
 	}
 }
 
@@ -62,6 +59,27 @@ func TestRejectHintMissingReplyMessageCanSkipPresenceCheck(t *testing.T) {
 	}
 	if exitCode != 0 {
 		t.Fatalf("expected pass when presence check is disabled")
+	}
+}
+
+func TestRejectHintMissingReplyMessageFailsWhenPresenceCheckEnabled(t *testing.T) {
+	packet := radius.New(radius.CodeAccessReject, []byte("secret"))
+	resp := &radiusc.Response{Code: radius.CodeAccessReject, Packet: packet}
+	caseData := testcase.Case{Expect: testcase.Expect{
+		Result:                  "reject",
+		RejectHintContains:      "not allowed",
+		RejectHintCheckPresence: boolPtr(true),
+	}}
+
+	exitCode, err := evaluateExpect(caseData, resp, false)
+	if err == nil {
+		t.Fatalf("expected error when presence check is enabled")
+	}
+	if exitCode != 1 {
+		t.Fatalf("expected fail exit code 1, got %d", exitCode)
+	}
+	if !strings.Contains(err.Error(), "missing Reply-Message") {
+		t.Fatalf("expected missing Reply-Message error, got %v", err)
 	}
 }
 
