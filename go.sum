@@ -1,7 +1,7 @@
 github.com/google/go-cmp v0.7.0 h1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=
 github.com/google/go-cmp v0.7.0/go.mod h1:pXiqmnSA92OHEEa9HXL2W4E7lf9JzCmGVUdgjX3N/iU=
-github.com/oyaguma3/go-eapaka v0.0.0-20260220135024-5edf0d7a8e21 h1:RvFD6Fmvcbtrg4g9up2dbJdZQZ9+HGiTkJy3SVj5Z5M=
-github.com/oyaguma3/go-eapaka v0.0.0-20260220135024-5edf0d7a8e21/go.mod h1:/iHZU1q4VOvRl+SaMf2XGMvp7CyZPx9HMsBt9fwDvLU=
+github.com/oyaguma3/go-eapaka v0.0.0-20260222130953-db627581125a h1:r53Y5YIxvSMcYg3FuDbYtTnSoJntkqseXMJZbv/ldz8=
+github.com/oyaguma3/go-eapaka v0.0.0-20260222130953-db627581125a/go.mod h1:/iHZU1q4VOvRl+SaMf2XGMvp7CyZPx9HMsBt9fwDvLU=
 github.com/wmnsk/milenage v1.2.1 h1:AmU3cp4+/pF32B77U3ipV29ZHf1gXG3twonITrIqUT8=
 github.com/wmnsk/milenage v1.2.1/go.mod h1:0u7HPh1BsNXPRnpWSCuaYkL3QB8c0Ihh2qSn1MX4B1c=
 github.com/yuin/goldmark v1.4.13/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=
