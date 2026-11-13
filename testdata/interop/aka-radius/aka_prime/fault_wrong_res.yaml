@@ -1,0 +1,10 @@
+version: 1
+name: fault_wrong_res
+description: 誤った AT_RES を正しい AT_MAC で送ると、サーバが拒否する
+identity: "6440100000000002@wlan.mnc010.mcc440.3gppnetwork.org"
+fault:
+  - { at: challenge_response, action: wrong_res }
+expect:
+  result: reject
+trace:
+  level: verbose

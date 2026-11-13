@@ -175,6 +175,7 @@ verbose trace では形式不正時に警告が出ます。
 - 値一致検証は固定テストデータ運用時のみ使用
 - `verify_msk: true` を指定すると、MS-MPPE 鍵を復号した値を、ピアが導出した MSK と比べます。対応付けは config の `mppe.mapping` で決めます。暗号化された値は Request Authenticator と Salt で毎回変わりますが、この方法は毎回の値に左右されずに確かめられます。トレースには一致したかどうかだけを出し、鍵の値は `--unsafe-log` でも出しません。
 - hostapd を相手にした相互接続テストの手順は `interop/hostapd/README.md` にあります。
+- テスト対象サーバ（aka-radius＋aka-vecgen）を WSL2 の中に立てて確かめる手順は `interop/aka-radius/README.md` にあります。
 
 ## 7. よくある使い方
 

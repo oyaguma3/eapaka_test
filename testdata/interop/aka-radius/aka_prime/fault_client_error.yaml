@@ -1,0 +1,10 @@
+version: 1
+name: fault_client_error
+description: Challenge に Client-Error で応答すると、サーバが EAP-Failure で終える
+identity: "6440100000000002@wlan.mnc010.mcc440.3gppnetwork.org"
+fault:
+  - { at: challenge_response, action: client_error }
+expect:
+  result: reject
+trace:
+  level: verbose

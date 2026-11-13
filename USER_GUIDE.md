@@ -175,6 +175,7 @@ Verbose trace warns when format is invalid.
 - Exact value matching is intended only for fixed test vectors
 - With `verify_msk: true`, the tool decrypts the MS-MPPE keys and compares them with the MSK derived by the peer, using `mppe.mapping` in the config. Unlike the encrypted values, which change with the Request Authenticator and Salt, this works for every run. The trace shows only whether they match; key values are never written, even with `--unsafe-log`.
 - Interop testing against hostapd is described in `interop/hostapd/README.md`.
+- Testing against the target server (aka-radius with aka-vecgen) running inside WSL2 is described in `interop/aka-radius/README.md`.
 
 ## 7. Common Usage
 

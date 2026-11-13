@@ -1,0 +1,11 @@
+version: 1
+name: msk_verify_full
+description: EAP-AKA のフル認証で、MS-MPPE 鍵を復号した値が MSK と一致する
+identity: "0440100000000001@wlan.mnc010.mcc440.3gppnetwork.org"
+expect:
+  result: accept
+  mppe:
+    require_present: true
+    verify_msk: true
+trace:
+  level: verbose

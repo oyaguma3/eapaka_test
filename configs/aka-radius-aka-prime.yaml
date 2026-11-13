@@ -1,0 +1,40 @@
+# interop/aka-radius（aka-mvpset の verify/stage2 の構成）の aka-radius に向けた設定
+# aka-radius はテナントの刻印（VSA 32473/1）を必須にしているので、刻印を付けるエッジの代わり
+# （テナント 42、127.0.0.1:11812）を経由して送る
+radius:
+  server_addr: "127.0.0.1:11812"
+  secret: "ap-secret-0123456789"
+  timeout_ms: 6000
+  retries: 1
+
+radius_attrs:
+  nas_ip_address: "192.0.2.10"
+  nas_identifier: "ap-01"
+  called_station_id: "00-11-22-33-44-55:ssid1"
+  calling_station_id: "02-00-00-00-00-01"
+
+eap:
+  method_mismatch_policy: "warn"
+  permanent_id_policy: "always"
+  aka_prime:
+    # aka-radius の RADIUS_EAP_AKA_PRIME_NETWORK_NAME の既定値
+    net_name: "WLAN"
+    net_name_check: "warn"
+
+identity:
+  realm: "wlan.mnc010.mcc440.3gppnetwork.org"
+
+# stage2.sh が aka-vecgen と aka-radius に登録する加入者（テナント 42）
+sim:
+  imsi: "440100000000002"
+  ki: "465b5ce8b199b49faa5f0a2ee238a6bc"
+  opc: "cd63cb71954a9f4e48a5994e37a02baf"
+  amf: "8000"
+  sqn_initial_hex: "000000000000"
+
+# aka-vecgen の SQN は実行のたびに進むので、ピアの SQN は実行ごとに初期化する
+sqn_store:
+  mode: "memory"
+
+mppe:
+  mapping: "rfc5216"
