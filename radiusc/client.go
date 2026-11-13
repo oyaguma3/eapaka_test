@@ -1,6 +1,7 @@
 package radiusc
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -16,7 +17,12 @@ type Attributes struct {
 	NASIdentifier    string
 	CalledStationID  string
 	CallingStationID string
+	// EAPKeyName が true なら、NUL 1 文字の EAP-Key-Name を入れる（RFC 7268 §2.2）。
+	EAPKeyName bool
 }
+
+// EAPKeyNameType は EAP-Key-Name 属性の番号（IANA、RFC 4072・RFC 7268）。
+const EAPKeyNameType radius.Type = 102
 
 // Response wraps a RADIUS response with parsed fields.
 type Response struct {
@@ -33,6 +39,9 @@ type Response struct {
 	// Message-Authenticator の有無と検証結果（RFC 3579 §3.2）。
 	MessageAuthenticatorPresent bool
 	MessageAuthenticatorValid   bool
+	// KeyName は応答の EAP-Key-Name。KeyNamePresent が false なら属性がない。
+	KeyName        []byte
+	KeyNamePresent bool
 }
 
 // Client is a RADIUS client with state retention for EAP sessions.
@@ -109,6 +118,9 @@ func (c *Client) ExchangeEAP(ctx context.Context, userName string, eap []byte, a
 	} else if ok {
 		out.EAP = eapResp
 	}
+	if v, ok := resp.Lookup(EAPKeyNameType); ok {
+		out.KeyName, out.KeyNamePresent = bytes.Clone(v), true
+	}
 	mppe, err := ExtractMPPEKeys(resp)
 	if err != nil {
 		return nil, err
@@ -166,6 +178,9 @@ func applyAttrs(packet *radius.Packet, attrs Attributes) error {
 		if err := rfc2865.CalledStationID_SetString(packet, attrs.CalledStationID); err != nil {
 			return err
 		}
+	}
+	if attrs.EAPKeyName {
+		packet.Add(EAPKeyNameType, radius.Attribute{0})
 	}
 	if attrs.CallingStationID != "" {
 		if err := rfc2865.CallingStationID_SetString(packet, attrs.CallingStationID); err != nil {

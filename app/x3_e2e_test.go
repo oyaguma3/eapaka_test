@@ -87,8 +87,8 @@ func TestE2EPeerBehavior(t *testing.T) {
 		{
 			name: "non-zero reserved fields with a valid MAC",
 			cfg:  fakeserver.Config{Method: eapaka.TypeAKAPrime, Faults: fakeserver.Faults{NonZeroReserved: true}},
-			// 受信したバイト列のまま MAC を検証するので、認証は通る
-			expect: "accept", wantSubtype: eapaka.SubtypeChallenge, wantExit: 0,
+			// 受信したバイト列のまま MAC を検証するので、認証は通る。Reserved は A-15（SHOULD、warn）
+			expect: "accept", wantSubtype: eapaka.SubtypeChallenge, wantRules: []string{"A-15"}, wantExit: 0,
 		},
 	}
 	for _, tt := range tests {

@@ -3,6 +3,7 @@ package aka
 import (
 	"testing"
 
+	"github.com/oyaguma3/eapaka_test/conformance"
 	"github.com/oyaguma3/eapaka_test/eap"
 	eapaka "github.com/oyaguma3/go-eapaka"
 )
@@ -286,5 +287,27 @@ func TestIdentityPrefixFollowsMethod(t *testing.T) {
 	}
 	if sess.InnerIdentity != "0440100123456789@example" {
 		t.Errorf("InnerIdentity = %q", sess.InnerIdentity)
+	}
+}
+
+func TestCheckReserved(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  []byte
+		want int // A-15 の件数
+	}{
+		{"clean", []byte{1, 1, 0, 16, 23, 5, 0, 0, 13, 1, 0, 0, 136, 1, 0x80, 0}, 0},
+		{"header reserved", []byte{1, 1, 0, 12, 23, 5, 0, 1, 13, 1, 0, 0}, 1},
+		{"AT_ANY_ID_REQ reserved", []byte{1, 1, 0, 12, 23, 5, 0, 0, 13, 1, 0, 9}, 1},
+		{"AT_BIDDING reserved bits", []byte{1, 1, 0, 12, 23, 1, 0, 0, 136, 1, 0x81, 0}, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := conformance.NewRecorder(conformance.DefaultPolicy())
+			checkReserved(tt.raw, &eap.Session{Conformance: rec})
+			if got := len(rec.Violations()); got != tt.want {
+				t.Errorf("A-15 violations = %d, want %d: %+v", got, tt.want, rec.Violations())
+			}
+		})
 	}
 }

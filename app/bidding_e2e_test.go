@@ -22,6 +22,7 @@ func TestE2EBidding(t *testing.T) {
 		bidding     testcase.Bidding
 		wantSubtype uint8
 		wantRules   []string
+		warnOnly    bool // wantRules が warn の規則だけなら、終了コードは 0
 	}{
 		{
 			name: "reject on forced AKA",
@@ -58,6 +59,14 @@ func TestE2EBidding(t *testing.T) {
 			wantRules:   []string{"A-09"},
 		},
 		{
+			name:      "R-08 Request after Nak(0)",
+			cfg:       fakeserver.Config{Faults: fakeserver.Faults{RequestAfterNakZero: true}},
+			nak:       testcase.Nak{On: []uint8{eapaka.TypeAKA}},
+			expect:    "reject",
+			wantRules: []string{"R-08"},
+			warnOnly:  true,
+		},
+		{
 			name:   "Nak refused by the server",
 			cfg:    fakeserver.Config{Method: eapaka.TypeAKAPrime},
 			nak:    forceAKA,
@@ -81,7 +90,7 @@ func TestE2EBidding(t *testing.T) {
 			res := Run(t.Context(), e2eConfig(srv), tc)
 
 			wantExit := 0
-			if len(tt.wantRules) > 0 {
+			if len(tt.wantRules) > 0 && !tt.warnOnly {
 				wantExit = 1
 			}
 			if res.ExitCode != wantExit {
@@ -101,8 +110,8 @@ func TestE2EBidding(t *testing.T) {
 					t.Errorf("last peer subtype = %d, want %d", got, tt.wantSubtype)
 				}
 			}
-			if len(tt.nak.On) > 0 && len(res.Obs.Naks) != 1 {
-				t.Errorf("Obs.Naks = %+v, want one Nak", res.Obs.Naks)
+			if len(tt.nak.On) > 0 && len(res.Obs.Naks) == 0 {
+				t.Errorf("Obs.Naks = %+v, want a Nak", res.Obs.Naks)
 			}
 		})
 	}

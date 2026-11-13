@@ -38,6 +38,13 @@ type selectedReauth struct {
 	eapType uint8
 }
 
+func (r *selectedReauth) identity() string {
+	if r == nil || r.ctx == nil {
+		return ""
+	}
+	return r.ctx.Identity
+}
+
 func (r *selectedReauth) contextFor(eapType uint8) *idstore.Reauth {
 	if r == nil || r.eapType != eapType {
 		return nil
@@ -169,6 +176,9 @@ func evaluateIdentity(tc testcase.Case, obs eap.Observations) (int, error) {
 	}
 	if e.IdentityRequests != nil && !slices.Equal(e.IdentityRequests, obs.IdentityRequests) {
 		return fail(1, "expect.identity_requests=%v but received %v", e.IdentityRequests, obs.IdentityRequests)
+	}
+	if e.KeyName != "" && e.KeyName != cmp.Or(obs.KeyName, "absent") {
+		return fail(1, "expect.key_name=%s but EAP-Key-Name was %q", e.KeyName, cmp.Or(obs.KeyName, "absent"))
 	}
 	if e.AuthType != "" && e.AuthType != obs.AuthType {
 		return fail(1, "expect.auth_type=%s but the authentication was %q", e.AuthType, obs.AuthType)

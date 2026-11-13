@@ -146,6 +146,7 @@ func exchange(ctx context.Context, merged config.Config, tc testcase.Case, peer 
 		NASIdentifier:    merged.RadiusAttrs.NASIdentifier,
 		CalledStationID:  merged.RadiusAttrs.CalledStationID,
 		CallingStationID: merged.RadiusAttrs.CallingStationID,
+		EAPKeyName:       merged.RadiusAttrs.EAPKeyName,
 	}
 
 	client := radiusc.NewClient(
@@ -207,6 +208,7 @@ func exchange(ctx context.Context, merged config.Config, tc testcase.Case, peer 
 			}
 		case radius.CodeAccessAccept:
 			verifyMSK(peer.Session, resp, merged.Radius.Secret, merged.MPPE.Mapping)
+			checkKeyName(rec, resp, merged.RadiusAttrs.EAPKeyName, &peer.Session.Obs)
 			commitPending(peer.Session, ids, merged.SIM.IMSI, tc, logger)
 			if logger != nil {
 				logger.LogMPPE(resp.MPPE)

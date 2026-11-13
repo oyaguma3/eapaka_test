@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/oyaguma3/eapaka_test/eap"
+	"github.com/oyaguma3/eapaka_test/idstore"
 
 	eapaka "github.com/oyaguma3/go-eapaka"
 )
@@ -19,15 +20,17 @@ func (m *Method) handleIdentity(req *eapaka.Packet, raw []byte, sess *eap.Sessio
 	if m.s.counterTooSmallSent {
 		rec.Report("A-11", "AKA-Identity (%s) after AT_COUNTER_TOO_SMALL", kind)
 	}
-	if kind == "fullauth" && m.reauthCtx != nil {
-		// AT_FULLAUTH_ID_REQ には再認証 ID で答えない（RFC 4187 §4.1.5）
+	// 再認証 ID のまま答えない場合がある。AT_FULLAUTH_ID_REQ（RFC 4187 §4.1.5）と、別のメソッドの
+	// 再認証 ID（RFC 9048 §7: メソッドをまたいで再認証しない）。仮名があれば仮名、なければ永続 ID で答える
+	if m.reauthIdentity != "" && kind != "permanent" {
 		cur := sess.InnerIdentity
 		if cur == "" {
 			cur = sess.OuterIdentity
 		}
-		if cur == m.reauthCtx.Identity {
-			sess.InnerIdentity = m.generatePermanentIdentity()
-			sess.Warnf("AT_FULLAUTH_ID_REQ: answering with the permanent identity instead of the re-authentication identity")
+		if cur == m.reauthIdentity && (kind == "fullauth" || m.reauthCtx == nil) {
+			sess.InnerIdentity = m.fullauthIdentity(sess)
+			sess.Warnf("AT_%s_ID_REQ: answering with a full-authentication identity instead of the re-authentication identity",
+				strings.ToUpper(kind))
 		}
 	}
 	switch {
@@ -203,4 +206,20 @@ func otherMethod(methodType uint8) uint8 {
 		return eap.TypeAKAPrime
 	}
 	return eap.TypeAKA
+}
+
+// fullauthIdentity は、フル認証に使う ID を返す。保存済みの仮名があれば仮名＋レルム、なければ永続 ID。
+func (m *Method) fullauthIdentity(sess *eap.Session) string {
+	if m.idstore != nil {
+		e, err := m.idstore.Get(m.imsi, idstore.MethodFor(m.methodType))
+		if err != nil {
+			sess.Warnf("identity store: %v", err)
+		} else if e.Pseudonym != nil {
+			if m.realm == "" {
+				return e.Pseudonym.Username
+			}
+			return e.Pseudonym.Username + "@" + m.realm
+		}
+	}
+	return m.generatePermanentIdentity()
 }

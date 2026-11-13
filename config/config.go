@@ -46,6 +46,9 @@ type RadiusAttrs struct {
 	NASIdentifier    string `yaml:"nas_identifier"`
 	CalledStationID  string `yaml:"called_station_id"`
 	CallingStationID string `yaml:"calling_station_id"`
+	// EAPKeyName が true なら、Access-Request に NUL 1 文字の EAP-Key-Name を入れて、
+	// Access-Accept での EAP-Key-Name（Session-Id）を求める（RFC 7268 §2.2）。
+	EAPKeyName bool `yaml:"eap_key_name"`
 }
 
 // NakConfig は強制 Nak（X5）。On のタイプを提示されたら Propose を希望する Nak を返す。

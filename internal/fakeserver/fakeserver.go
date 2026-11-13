@@ -69,6 +69,8 @@ type Config struct {
 	KnownPseudonyms []string
 	// Checkcode が true なら、Challenge に AT_CHECKCODE を入れる。
 	Checkcode bool
+	// KeyName が true なら、フル認証の Access-Accept に EAP-Key-Name（Session-Id）を入れる。
+	KeyName bool
 	// IssueReauthID が空でなければ、フル認証と再認証で次回の再認証 ID を発行する。
 	// ID は「IssueReauthID＋通し番号@fake.example」。使った再認証 ID は無効にする。
 	IssueReauthID string
@@ -124,7 +126,11 @@ type Faults struct {
 	StaleCounter                 bool // A-04: 再認証の AT_COUNTER を増やさない
 	IdentityAfterCounterTooSmall bool // A-11: AT_COUNTER_TOO_SMALL の後に AKA-Identity を送る
 	PseudonymInReauth            bool // A-06: 再認証の要求に AT_NEXT_PSEUDONYM を入れる
-	IgnoreResponseResult         bool // ピアの応答の RES と MAC を確かめずに成功させる
+
+	// EAP Nak
+	RequestAfterNakZero  bool // R-08: 0 の Nak を受けても、もう一度 Challenge を送る
+	WrongKeyName         bool // R-09: EAP-Key-Name を Session-Id と違う値にする
+	IgnoreResponseResult bool // ピアの応答の RES と MAC を確かめずに成功させる
 }
 
 // Event は疑似サーバが受け取った EAP-Response の記録。
@@ -167,9 +173,11 @@ type session struct {
 	identityMsgs [][]byte // AKA-Identity の Request / Response（AT_CHECKCODE 用）
 	idRounds     int
 
-	stage     string // "eap-notify"、"success-notify"、"failure-notify"（応答を待っている通知）
-	notifies  int    // 送った成功通知の数
-	peerError bool   // ピアの Client-Error / Authentication-Reject を受けた
+	stage          string // "eap-notify"、"success-notify"、"failure-notify"（応答を待っている通知）
+	notifies       int    // 送った成功通知の数
+	peerError      bool   // ピアの Client-Error / Authentication-Reject を受けた
+	nakZeroIgnored bool   // RequestAfterNakZero を 1 回だけ使う
+	sessionID      []byte // フル認証の Session-Id（タイプ || RAND || AUTN）
 }
 
 // Start は疑似サーバを 127.0.0.1 の空いているポートで起動する。
@@ -239,6 +247,8 @@ type reply struct {
 	eap   []byte // nil なら EAP-Message を付けない
 	state []byte
 	msk   []byte // nil でなければ MS-MPPE 鍵を付ける
+	// keyName が nil でなければ EAP-Key-Name を付ける
+	keyName []byte
 }
 
 func (s *Server) serve(w radius.ResponseWriter, r *radius.Request) {
@@ -276,6 +286,10 @@ func (s *Server) handle(req *radius.Packet) reply {
 	if pkt.Type == eap.TypeNotify && sess.stage == "eap-notify" {
 		sess.stage = ""
 		return s.firstRequest(sess, state)
+	}
+	if pkt.Type == eap.TypeNak && s.cfg.Faults.RequestAfterNakZero && bytes.Equal(pkt.TypeData, []byte{0}) && !sess.nakZeroIgnored {
+		sess.nakZeroIgnored = true
+		return s.challenge(sess, state, nil)
 	}
 	if pkt.Type == eap.TypeNak {
 		// 希望されたメソッドのうち、切り替えてよい最初のものに切り替える（RFC 3748 §5.3.1）
@@ -589,6 +603,7 @@ func (s *Server) challenge(sess *session, state []byte, kdfAttrs []eapaka.Attrib
 	}
 	attrs = append(attrs, &eapaka.AtMac{MAC: make([]byte, 16)})
 	sess.xres = res
+	sess.sessionID = append(append([]byte{map[bool]byte{true: 0x32, false: 0x17}[sess.method == eapaka.TypeAKAPrime]}, rnd...), autn...)
 
 	req := &eapaka.Packet{
 		Code: eapaka.CodeRequest, Identifier: sess.lastID + 1, Type: sess.method,
@@ -623,6 +638,12 @@ func (s *Server) challenge(sess *session, state []byte, kdfAttrs []eapaka.Attrib
 func (s *Server) success(sess *session, state []byte) reply {
 	f := s.cfg.Faults
 	rep := reply{code: radius.CodeAccessAccept, eap: s.result(eap.CodeSuccess, sess.lastID), msk: sess.msk}
+	if s.cfg.KeyName && sess.reauth == nil {
+		rep.keyName = bytes.Clone(sess.sessionID)
+		if s.cfg.Faults.WrongKeyName {
+			rep.keyName[len(rep.keyName)-1] ^= 0xff
+		}
+	}
 	switch {
 	case f.AcceptWithoutEAP:
 		rep.eap = nil
@@ -664,6 +685,9 @@ func (s *Server) write(w radius.ResponseWriter, req *radius.Packet, rep reply) e
 		if err := rfc2865.State_Set(resp, rep.state); err != nil {
 			return err
 		}
+	}
+	if rep.keyName != nil {
+		resp.Add(radiusc.EAPKeyNameType, rep.keyName)
 	}
 	if rep.msk != nil {
 		if err := addMPPEKeys(resp, rep.msk, []byte(s.cfg.Secret), req.Authenticator[:], f); err != nil {

@@ -128,7 +128,11 @@ func (l *Logger) LogSession(obs eap.Observations) {
 	if l.Unsafe {
 		peer = obs.PeerID
 	}
-	fmt.Fprintf(l.Out, "eap auth_type=%s peer_id=%s session_id=%s\n", obs.AuthType, peer, sid)
+	line := fmt.Sprintf("eap auth_type=%s peer_id=%s session_id=%s", obs.AuthType, peer, sid)
+	if obs.KeyName != "" {
+		line += " eap_key_name=" + obs.KeyName
+	}
+	fmt.Fprintln(l.Out, line)
 }
 
 // LogWarn writes a warning that is not a conformance violation.

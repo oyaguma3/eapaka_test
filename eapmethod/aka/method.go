@@ -41,6 +41,9 @@ type Options struct {
 
 	// IDStore は識別子ストア（AT_IV の履歴。仮名の保存は app が行う）。nil なら履歴を調べない。
 	IDStore idstore.Store
+	// ReauthIdentity は、この実行で使う再認証 ID（メソッドを問わない）。AT_FULLAUTH_ID_REQ や、
+	// 別のメソッドで ID を求められたときに、この ID で答えないために使う。
+	ReauthIdentity string
 	// ReauthContext は、このメソッドの再認証コンテキスト（app が識別子ストアから取り出して渡す）。
 	// nil なら再認証の要求に Client-Error を返す。
 	ReauthContext *idstore.Reauth
@@ -75,14 +78,15 @@ type Method struct {
 	permanentIdentityOverride         string
 	outerIdentityUpdateOnPermanentReq bool
 
-	emptyKdfInput string
-	netNameCheck  string
-	faults        []Fault
-	biddingPolicy string
-	resultInd     bool
-	idstore       idstore.Store
-	checkcodeMode string
-	reauthCtx     *idstore.Reauth
+	emptyKdfInput  string
+	netNameCheck   string
+	faults         []Fault
+	biddingPolicy  string
+	resultInd      bool
+	idstore        idstore.Store
+	checkcodeMode  string
+	reauthCtx      *idstore.Reauth
+	reauthIdentity string
 
 	s akaSession
 }
@@ -120,14 +124,15 @@ func New(opts Options) (*Method, error) {
 		permanentIdentityOverride:         opts.PermanentIdentityOverride,
 		outerIdentityUpdateOnPermanentReq: defaultOuterUpdate(opts.OuterIdentityUpdateOnPermanentReq),
 
-		emptyKdfInput: cmp.Or(opts.EmptyKdfInput, "reject"),
-		netNameCheck:  cmp.Or(opts.NetNameCheck, "off"),
-		faults:        slices.Clone(opts.Faults),
-		biddingPolicy: cmp.Or(opts.BiddingPolicy, "reject"),
-		resultInd:     opts.ResultInd == nil || *opts.ResultInd,
-		idstore:       opts.IDStore,
-		checkcodeMode: cmp.Or(opts.Checkcode, "auto"),
-		reauthCtx:     opts.ReauthContext,
+		emptyKdfInput:  cmp.Or(opts.EmptyKdfInput, "reject"),
+		netNameCheck:   cmp.Or(opts.NetNameCheck, "off"),
+		faults:         slices.Clone(opts.Faults),
+		biddingPolicy:  cmp.Or(opts.BiddingPolicy, "reject"),
+		resultInd:      opts.ResultInd == nil || *opts.ResultInd,
+		idstore:        opts.IDStore,
+		checkcodeMode:  cmp.Or(opts.Checkcode, "auto"),
+		reauthCtx:      opts.ReauthContext,
+		reauthIdentity: opts.ReauthIdentity,
 	}
 	return method, nil
 }
@@ -185,6 +190,7 @@ func (m *Method) handle(req eap.Packet, raw []byte, sess *eap.Session) (*eap.Pac
 		}
 		return nil, err
 	}
+	checkReserved(raw, sess)
 	for _, attr := range akaReq.Attributes {
 		if g, ok := attr.(*eapaka.GenericAttribute); ok && !eapaka.IsSkippable(g.AttrType) {
 			// RFC 4187 §8.1: 未知のスキップ不可属性があればパケットを処理しない

@@ -99,6 +99,9 @@ type Observations struct {
 	// EAP-AKA の再認証の Session-Id は RFC に定義がないので空。
 	SessionID []byte
 	PeerID    string
+	// KeyName は、Access-Accept の EAP-Key-Name と Session-Id の照合結果
+	// （"match"、"mismatch"、ピアに Session-Id がなければ "undefined"、属性がなければ ""）。
+	KeyName string
 }
 
 // NotificationObs は AKA-Notification の記録。Code は S・P ビットを含む 16 bit の値。
@@ -165,6 +168,8 @@ type Peer struct {
 
 	// method は最初に応答したメソッドのタイプ（R-06 の検査用）。
 	method uint8
+	// nakZero は、希望なし（0）の Nak を送ったこと（R-08 の検査用）。
+	nakZero bool
 }
 
 // NewPeer creates a peer with the given session and methods.
@@ -194,6 +199,10 @@ func (p *Peer) Handle(req Packet) (*Packet, error) {
 	if sess == nil {
 		sess = &Session{}
 	}
+	if p.nakZero {
+		// RFC 3748 §5.3.1: 0 の Nak を受けたサーバは、次の Request を送らないほうがよい
+		sess.Conformance.Report("R-08", "EAP-Request type %d received after a Nak with type 0", req.Type)
+	}
 
 	if req.Type == TypeIdentity {
 		return identityResponse(req.Identifier, sess.OuterIdentity)
@@ -209,6 +218,7 @@ func (p *Peer) Handle(req Packet) (*Packet, error) {
 	if p.method == 0 {
 		if proposed, ok := p.nakFor(req.Type); ok {
 			sess.Obs.Naks = append(sess.Obs.Naks, NakObs{Offered: req.Type, Proposed: proposed})
+			p.nakZero = slices.Equal(proposed, []uint8{0})
 			return &Packet{Code: CodeResponse, Identifier: req.Identifier, Type: TypeNak, TypeData: proposed}, nil
 		}
 	}

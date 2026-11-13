@@ -144,3 +144,19 @@ func TestE2EReauthCrossMethod(t *testing.T) {
 		t.Errorf("exit = %d, want 2 (no EAP-AKA' context), err = %v", res.ExitCode, res.Err)
 	}
 }
+
+// TestE2EFullauthPrefersPseudonym は、AT_FULLAUTH_ID_REQ に再認証 ID ではなく、
+// 保存済みの仮名で答えることを確かめる（RFC 4187 §4.1.5）。
+func TestE2EFullauthPrefersPseudonym(t *testing.T) {
+	cfg := reauthSetup(t, fakeserver.Config{IssuePseudonym: "2pseudo77", KnownPseudonyms: []string{"2pseudo77"}}, "aka")
+	if res := Run(t.Context(), cfg, reauthCase(t, "aka", "accept")); res.ExitCode != 0 {
+		t.Fatalf("reauth: exit = %d, err = %v", res.ExitCode, res.Err)
+	}
+	tc := reauthCase(t, "aka", "accept")
+	tc.Faults = []testcase.Fault{{At: "start", Action: "reuse_reauth_id"}}
+	tc.Expect.AuthType, tc.Expect.IdentityRequests = "full", []string{"fullauth"}
+	res := Run(t.Context(), cfg, tc)
+	if res.ExitCode != 0 || res.Obs.PeerID != "2pseudo77@"+e2eRealm {
+		t.Errorf("exit = %d, Peer-Id = %q, err = %v", res.ExitCode, res.Obs.PeerID, res.Err)
+	}
+}

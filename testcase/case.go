@@ -125,6 +125,8 @@ type Expect struct {
 	AuthType string `yaml:"auth_type"`
 	// CounterTooSmallSent は、ピアが AT_COUNTER_TOO_SMALL を送ったか。
 	CounterTooSmallSent *bool `yaml:"counter_too_small_sent"`
+	// KeyName は Access-Accept の EAP-Key-Name の照合結果（match / undefined / absent）。
+	KeyName string `yaml:"key_name"`
 }
 
 // Notification は AKA-Notification の期待値（RFC 4187 §6）。省略した項目は検査しない。
@@ -185,6 +187,9 @@ func (c Case) Validate() error {
 		if v != "" && !isOneOf(v, "present", "absent") {
 			return fmt.Errorf("testcase: expect.next_pseudonym and expect.next_reauth_id must be present or absent")
 		}
+	}
+	if c.Expect.KeyName != "" && !isOneOf(c.Expect.KeyName, "match", "undefined", "absent") {
+		return fmt.Errorf("testcase: expect.key_name must be match, undefined, or absent")
 	}
 	if c.Expect.AuthType != "" && !isOneOf(c.Expect.AuthType, "full", "reauth") {
 		return fmt.Errorf("testcase: expect.auth_type must be full or reauth")

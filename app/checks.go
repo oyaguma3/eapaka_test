@@ -91,6 +91,26 @@ func checkMPPESalts(rec *conformance.Recorder, keys radiusc.MPPEKeys) {
 	}
 }
 
+// checkKeyName は Access-Accept の EAP-Key-Name を Session-Id と照合する（R-09・R-10、RFC 7268 §2.2）。
+func checkKeyName(rec *conformance.Recorder, resp *radiusc.Response, requested bool, obs *eap.Observations) {
+	if !resp.KeyNamePresent {
+		return
+	}
+	if !requested {
+		rec.Report("R-10", "Access-Accept carries EAP-Key-Name although the Access-Request did not")
+	}
+	switch {
+	case len(obs.SessionID) == 0:
+		// EAP-AKA の再認証には Session-Id の定義がない（RFC 5247 付録 A）
+		obs.KeyName = "undefined"
+	case bytes.Equal(resp.KeyName, obs.SessionID):
+		obs.KeyName = "match"
+	default:
+		obs.KeyName = "mismatch"
+		rec.Report("R-09", "EAP-Key-Name (%d bytes) does not match the EAP Session-Id (%d bytes)", len(resp.KeyName), len(obs.SessionID))
+	}
+}
+
 // prematureReason は、成功が早すぎる理由を補足する（RFC 4187 §6.3.4）。
 func prematureReason(obs eap.Observations) string {
 	switch {

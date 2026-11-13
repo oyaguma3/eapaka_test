@@ -47,6 +47,7 @@ func buildPeer(cfg config.Config, tc testcase.Case, store sqnstore.Store, ids id
 	akaMethod, err := aka.New(aka.Options{
 		MethodType:                        eap.TypeAKA,
 		ReauthContext:                     reauth.contextFor(eap.TypeAKA),
+		ReauthIdentity:                    reauth.identity(),
 		IMSI:                              merged.SIM.IMSI,
 		KI:                                ki,
 		OPC:                               opc,
@@ -69,6 +70,7 @@ func buildPeer(cfg config.Config, tc testcase.Case, store sqnstore.Store, ids id
 	akaPrimeMethod, err := aka.New(aka.Options{
 		MethodType:                        eap.TypeAKAPrime,
 		ReauthContext:                     reauth.contextFor(eap.TypeAKAPrime),
+		ReauthIdentity:                    reauth.identity(),
 		IMSI:                              merged.SIM.IMSI,
 		KI:                                ki,
 		OPC:                               opc,

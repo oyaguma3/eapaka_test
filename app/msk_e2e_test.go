@@ -1,6 +1,7 @@
 package app
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -72,5 +73,45 @@ func TestE2EVerifyMSKWithoutMSK(t *testing.T) {
 	res := Run(t.Context(), e2eConfig(srv), tc)
 	if res.Obs.MSKMatch != nil || res.ExitCode != 1 || !strings.Contains(res.Err.Error(), "not derived an MSK") {
 		t.Errorf("MSKMatch = %v, exit = %d, err = %v", res.Obs.MSKMatch, res.ExitCode, res.Err)
+	}
+}
+
+// TestE2EKeyName は、Access-Accept の EAP-Key-Name と Session-Id の照合（R-09・R-10、RFC 7268 §2.2）を確かめる。
+func TestE2EKeyName(t *testing.T) {
+	tests := []struct {
+		name      string
+		method    uint8
+		faults    fakeserver.Faults
+		request   bool
+		wantKey   string
+		wantRules []string
+		wantExit  int
+	}{
+		{name: "aka match", method: eapaka.TypeAKA, request: true, wantKey: "match"},
+		{name: "aka_prime match", method: eapaka.TypeAKAPrime, request: true, wantKey: "match"},
+		{name: "R-10 not requested", method: eapaka.TypeAKA, wantKey: "match", wantRules: []string{"R-10"}},
+		{name: "R-09 mismatch", method: eapaka.TypeAKAPrime, request: true, faults: fakeserver.Faults{WrongKeyName: true},
+			wantKey: "mismatch", wantRules: []string{"R-09"}, wantExit: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := startServer(t, fakeserver.Config{Method: tt.method, KeyName: true, Faults: tt.faults})
+			cfg := e2eConfig(srv)
+			cfg.RadiusAttrs.EAPKeyName = tt.request
+			identity := "0440100123456789@" + e2eRealm
+			if tt.method == eapaka.TypeAKAPrime {
+				identity = "6440100123456789@" + e2eRealm
+			}
+			res := Run(t.Context(), cfg, e2eCase(t, identity, "accept"))
+			if res.Obs.KeyName != tt.wantKey {
+				t.Errorf("KeyName = %q, want %q", res.Obs.KeyName, tt.wantKey)
+			}
+			if ids := violationIDs(res.Violations); !slices.Equal(ids, tt.wantRules) {
+				t.Errorf("violations = %v, want %v", ids, tt.wantRules)
+			}
+			if res.ExitCode != tt.wantExit {
+				t.Errorf("exit = %d, want %d (err=%v)", res.ExitCode, tt.wantExit, res.Err)
+			}
+		})
 	}
 }
