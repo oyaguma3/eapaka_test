@@ -35,3 +35,8 @@ sqn_store:
 
 mppe:
   mapping: "rfc5216"
+
+# 受け取った仮名を実行をまたいで使う（pseudonym_issue → pseudonym_use）
+identity_store:
+  mode: "file"
+  path: "/tmp/eapaka_test-hostapd-ids.json"

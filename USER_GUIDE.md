@@ -67,6 +67,10 @@ conformance:
 
 mppe:
   mapping: "rfc5216"
+
+identity_store:
+  mode: "file"
+  path: "/tmp/eapaka_test-identity.json"
 ```
 
 Main fields:
@@ -90,6 +94,7 @@ Main fields:
   - `aka_prime.net_name_check`: `off|warn|reject` (default: off). Compares AT_KDF_INPUT with `net_name` field by field (colon-separated). On mismatch, warn only logs; reject sends Authentication-Reject
   - `method_preference`: allowed EAP methods in order of preference (e.g. `[50, 23]`; default: every registered method, AKA' first). A method outside it gets a Nak with the preferred types
   - `nak`: forced Nak. `{ on: [50], propose: [23] }` answers an AKA' offer with a Nak proposing AKA (for bidding-down tests that steer the server to AKA)
+  - `checkcode`: `auto|always|never` (default: auto). Whether to include AT_CHECKCODE in the response; auto includes it only when the server sent it. The server's AT_CHECKCODE is verified against the AKA-Identity messages exchanged
   - `result_ind`: `true|false` (default: true). Include AT_RESULT_IND in the response when the server sent it (RFC 4187 §6.2). When both sides use it, EAP-Success is accepted only after the success notification
   - `bidding_policy`: `reject|ignore` (default: reject). With the D bit set in AT_BIDDING of an EAP-AKA Challenge, reject sends Authentication-Reject (RFC 9048 §4); ignore acts as an AKA-only peer
   - `aka_prime.empty_kdf_input`: `reject|fallback` (default: reject). When AT_KDF_INPUT is missing or empty, send Authentication-Reject or continue with `net_name`. Either way it is recorded as violation A-13
@@ -111,6 +116,10 @@ Main fields:
   - `default_must`: handling of MUST rules, `fail|warn|off` (default: fail)
   - `default_should`: handling of SHOULD rules, `fail|warn|off` (default: warn)
   - `rules`: per-rule overrides (e.g. `{ R-02: off }`)
+
+- `identity_store.*`: stores received pseudonyms and the AT_IV history (for reuse detection) per IMSI and method
+  - `mode`: `memory|file` (default: memory; use file to reuse pseudonyms across runs)
+  - `path`: required when `mode=file` (saved with permission 0600)
 
 - `mppe.mapping`: how MS-MPPE keys map to the MSK, `rfc5216` (default; Recv-Key = MSK[0:32], Send-Key = MSK[32:64]) or `swapped`
 
@@ -135,7 +144,11 @@ expect:
 
 Main fields:
 
-- `identity`: initial outer identity (required)
+- `identity`: initial outer identity (required when `identity_source` is literal)
+- `identity_source`: how to choose the start identity: `literal` (default; use `identity`), `permanent` (built from the IMSI and realm), `pseudonym` (the stored pseudonym plus the realm; ERROR if none), `auto` (pseudonym, then permanent)
+- `method`: the method of the identity when `identity_source` is not literal, `aka|aka_prime` (default: aka; decides the permanent prefix 0 / 6 and which pseudonym to use)
+- `identity_store.reset`: clear the records (pseudonym and AT_IV history) of the IMSI before the run
+- `identity_store.persist`: whether to store a received pseudonym (default: true; stored on Access-Accept)
 - `radius.*`: optional per-case override for radius settings
 - `eap.*`: optional per-case override for eap settings
   - `permanent_identity_override`: fully override Permanent ID
@@ -151,6 +164,9 @@ Main fields:
   - `mppe.require_present`: require MPPE attributes
   - `mppe.send_key` / `mppe.recv_key`: exact match (`hex:` or `b64:`)
   - `mppe.verify_msk`: decrypt the MS-MPPE keys and require them to match the MSK derived by the peer (section 6)
+  - `next_pseudonym` / `next_reauth_id`: whether the next pseudonym / re-authentication identity is received in AT_ENCR_DATA (`present|absent`)
+  - `identity_requests`: the sequence of AKA-Identity request kinds received (e.g. `[any, permanent]`; `[]` means no AKA-Identity)
+  - `checkcode`: the AT_CHECKCODE verification result (`verified|absent`)
   - `notification`: expected AKA-Notification: `code` (the full code with the S and P bits; 32768 for success, 16384 for failure before authentication) and `present`
   - `bidding`: expected AT_BIDDING: `present`, `d_bit` and `action` (the peer's action, `reject|ignore`). Omitted fields are not checked
 
@@ -253,14 +269,21 @@ The tool can fail a run on server RFC violations even when the result matches th
 | R-05 | No success indication before the method completes or after it failed | RFC 3748 §4.2, RFC 4187 §6.2 | MUST |
 | R-06 | The server does not switch EAP types during a method | RFC 3748 §2.1 | MUST |
 | R-07 | MS-MPPE key Salts have the MSB set and differ between Send and Recv | RFC 2548 §2.4.2 | MUST |
+| A-01 | At most 3 AKA-Identity rounds, AT_ANY_ID_REQ only in the first, no identity request after AT_PERMANENT_ID_REQ | RFC 4187 §4.1.5, §9.1 | MUST |
+| A-02 | AT_IV is not reused (also across runs, using the `identity_store` history) | RFC 4187 §10.12 | MUST |
+| A-05 | AT_ENCR_DATA is a multiple of 16 bytes, and AT_PADDING is zero-filled and last | RFC 4187 §10.12 | MUST |
+| A-06 | AT_NEXT_PSEUDONYM has no realm, and AT_NEXT_PSEUDONYM / AT_NEXT_REAUTH_ID are sent encrypted | RFC 4187 §10.10, §10.11 | MUST |
+| A-07 | AT_RESULT_IND is not included in AT_ENCR_DATA | RFC 4187 §10.14 | MUST |
 | A-08 | AKA-Notification: S=0 when P=1, P=0 only after successful authentication, one round per exchange, success only with AT_RESULT_IND | RFC 4187 §6.1, §6.2 | MUST |
 | A-09 | AT_BIDDING is not included in EAP-AKA' messages | RFC 9048 §4 | MUST |
 | A-10 | After the peer's Client-Error or Authentication-Reject the server sends EAP-Failure (no other Request) | RFC 4187 §6.3.1 | MUST |
 | A-12 | The AMF separation bit in EAP-AKA' AUTN is 1 | RFC 9048 §3.3 | MUST |
 | A-13 | AT_KDF_INPUT is present with a non-empty network name | RFC 9048 §3.1 | MUST |
+| A-14 | EAP-AKA' pseudonyms do not reveal the IMSI (heuristic, warn by default) | RFC 9048 §5.2 | MUST |
 | A-16 | EAP-AKA/AKA' requests are well-formed (known subtype, no unknown non-skippable attribute, required attributes present) | RFC 4187 §6.3.1, §8.1 | MUST |
 | A-17 | An AT_KDF re-offer only prepends the selected KDF to the original offer | RFC 9048 §3.2 | MUST |
 | A-18 | AT_MAC in a request is present and valid | RFC 4187 §10.15 | MUST |
+| A-19 | AT_CHECKCODE matches the AKA-Identity messages exchanged | RFC 4187 §10.13, RFC 9048 §3.4.3 | MUST |
 
 Violations are written to the trace as follows, with a summary at the end of the run:
 
@@ -289,6 +312,11 @@ conformance violations=1 fail=0 warn=1 ids=R-02
   - A P=0 notification (after authentication) is verified and answered with AT_MAC.
   - Success after a failure notification, and Access-Accept without the success notification when AT_RESULT_IND was used, are R-05 violations.
 - RFC 3748 Notification (Type 2) gets an empty response, and the displayable message is traced.
+- AT_ENCR_DATA in a Challenge is decrypted after AT_MAC is verified.
+  - A received pseudonym (AT_NEXT_PSEUDONYM) is stored in `identity_store` on Access-Accept.
+  - Data that cannot be decrypted, bad padding or an unknown non-skippable attribute gets Client-Error.
+  - A re-authentication identity (AT_NEXT_REAUTH_ID) is only recorded as received; storing and using it will come later.
+- AT_CHECKCODE is verified against the AKA-Identity Requests and Responses concatenated as exchanged; a mismatch gets Client-Error.
 - EAP-AKA' KDF negotiation is supported. If the first offered KDF is not supported, the peer replies with only AT_KDF and validates the server's re-offer.
 
 ### Fault injection

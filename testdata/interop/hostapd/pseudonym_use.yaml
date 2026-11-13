@@ -1,0 +1,14 @@
+version: 1
+name: pseudonym_use
+description: pseudonym_issue で保存した仮名で、AKA-Identity なしに認証できる（hostapd を再起動していないこと）
+identity_source: pseudonym
+method: aka
+expect:
+  result: accept
+  mppe:
+    require_present: true
+    verify_msk: true
+  # hostapd は仮名を認識すると AKA-Identity を省いて Challenge を送る
+  identity_requests: []
+trace:
+  level: verbose

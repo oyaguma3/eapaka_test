@@ -51,6 +51,7 @@ eapaka_test 側の設定は `configs/hostapd.yaml` です。
 - **仮名と再認証 ID**：Challenge の AT_ENCR_DATA で、仮名と再認証 ID を発行します（`eap_sim_id` の既定値）。
 - **EAP-AKA の Challenge**：AT_BIDDING が入ります。ユーザーの EAP メソッドの一覧で AKA' が AKA より先にあれば、D ビットが立ちます。`eap_user` では AKA' の永続 ID（先頭 6）に `AKA',AKA` を許しています。そのため、ピアが Nak で AKA を希望すると、D ビット付きの AKA の Challenge になります（bidding の試験）。
 - **EAP-AKA' のネットワーク名**：hostapd は "WLAN" に固定しています。
+- **仮名は永続 ID ごとに 1 つ**：同じ IMSI でフル認証をするたびに、新しく発行した仮名で置き換わります。`pseudonym_issue` で保存した仮名を `pseudonym_use` で使うので、ケースはファイル名の順（`pseudonym_issue` → `pseudonym_use`）に、間に同じ IMSI の認証を挟まずに流してください。hostapd を再起動しても仮名は消えます。
 - **ピアの AT_MAC が不正なとき**：EAP-Failure の前に、認証前の失敗通知（16384）を送ります（`notification_failure_before_auth`）。
 - **AT_RESULT_IND**：`eap_sim_aka_result_ind=1` で有効にしています。ピアも使えば、EAP-Success の前に成功通知（32768）を送ります。
 - **SQN**：hlr_auc_gw は起動のたびに `milenage_db` の SQN から数え直します。そのため、`configs/hostapd.yaml` ではピアの SQN ストアをメモリに置いています。

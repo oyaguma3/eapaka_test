@@ -1,0 +1,14 @@
+version: 1
+name: pseudonym_issue
+description: 永続 ID で認証すると、Challenge の AT_ENCR_DATA で次回の仮名を受け取り、保存する
+identity_source: permanent
+method: aka
+identity_store: { reset: true }
+expect:
+  result: accept
+  mppe:
+    require_present: true
+    verify_msk: true
+  next_pseudonym: present
+trace:
+  level: verbose

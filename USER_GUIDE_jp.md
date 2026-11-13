@@ -67,6 +67,10 @@ conformance:
 
 mppe:
   mapping: "rfc5216"
+
+identity_store:
+  mode: "file"
+  path: "/tmp/eapaka_test-identity.json"
 ```
 
 主な項目:
@@ -90,6 +94,7 @@ mppe:
   - `aka_prime.net_name_check`: `off|warn|reject`（既定: off）。AT_KDF_INPUT と `net_name` をコロン区切りのフィールドごとに比べる。不一致なら warn は警告だけ、reject は Authentication-Reject
   - `method_preference`: 使ってよい EAP メソッドの希望順（例: `[50, 23]`。既定は登録済みのすべてを AKA' → AKA の順）。外れたメソッドを提示されたら Nak で希望を返す
   - `nak`: 強制 Nak。`{ on: [50], propose: [23] }` なら、AKA' を提示されたときに AKA を希望する Nak を返す（サーバを AKA に誘導する bidding down の試験用）
+  - `checkcode`: `auto|always|never`（既定: auto）。応答に AT_CHECKCODE を入れるか。auto はサーバが送ってきたときだけ入れる。サーバの AT_CHECKCODE は、AKA-Identity のやりとりと照合する
   - `result_ind`: `true|false`（既定: true）。サーバが AT_RESULT_IND を送ってきたときに、応答にも入れるか（RFC 4187 §6.2）。双方が使うと、成功通知を受けるまで EAP-Success を受け入れない
   - `bidding_policy`: `reject|ignore`（既定: reject）。EAP-AKA の Challenge の AT_BIDDING に D ビットが立っていたら、reject は Authentication-Reject を返す（RFC 9048 §4）。ignore は AKA にしか対応しないピアを模擬する
   - `aka_prime.empty_kdf_input`: `reject|fallback`（既定: reject）。AT_KDF_INPUT がない・空のときに Authentication-Reject を返すか、`net_name` で補って続けるか。どちらでも違反 A-13 として記録する
@@ -111,6 +116,10 @@ mppe:
   - `default_must`: MUST の規則の扱い `fail|warn|off`（既定: fail）
   - `default_should`: SHOULD の規則の扱い `fail|warn|off`（既定: warn）
   - `rules`: 規則 ID ごとの上書き（例: `{ R-02: off }`）
+
+- `identity_store.*`: サーバから受け取った仮名と、AT_IV の履歴（再利用の検出用）を、IMSI とメソッドごとに保存する
+  - `mode`: `memory|file`（既定: memory。実行をまたいで仮名を使うなら file）
+  - `path`: file モード時に必須（パーミッション 0600 で保存）
 
 - `mppe.mapping`: MS-MPPE 鍵と MSK の対応。`rfc5216`（既定。Recv-Key = MSK[0:32]、Send-Key = MSK[32:64]）か `swapped`
 
@@ -135,7 +144,11 @@ expect:
 
 主な項目:
 
-- `identity`: 開始時の outer identity（必須）
+- `identity`: 開始時の outer identity（`identity_source` が literal のときは必須）
+- `identity_source`: 開始時の ID の選び方。`literal`（既定。`identity` をそのまま使う）、`permanent`（IMSI とレルムから永続 ID を作る）、`pseudonym`（保存済みの仮名＋レルム。なければ ERROR）、`auto`（仮名 → 永続 ID）
+- `method`: `identity_source` が literal 以外のときの ID のメソッド。`aka|aka_prime`（既定: aka。永続 ID の先頭文字 0 / 6 と、使う仮名が決まる）
+- `identity_store.reset`: 実行の前に、この IMSI の記録（仮名と AT_IV の履歴）を消す
+- `identity_store.persist`: 受け取った仮名を保存するか（既定: true。Access-Accept を受けたときに保存する）
 - `radius.*`: config を上書きする RADIUS 設定（任意）
 - `eap.*`: config を上書きする EAP 設定（任意）
   - `permanent_identity_override`: Permanent ID の完全指定
@@ -151,6 +164,9 @@ expect:
   - `mppe.require_present`: MPPE 属性の存在確認
   - `mppe.send_key` / `mppe.recv_key`: `hex:` / `b64:` で固定値一致
   - `mppe.verify_msk`: MS-MPPE 鍵を復号し、ピアが導出した MSK と一致することを求める（第 6 章）
+  - `next_pseudonym` / `next_reauth_id`: AT_ENCR_DATA で次回の仮名・再認証 ID を受け取るか（`present|absent`）
+  - `identity_requests`: 受け取る AKA-Identity の要求の種類の並び（例: `[any, permanent]`。`[]` は AKA-Identity がないこと）
+  - `checkcode`: AT_CHECKCODE の検証結果（`verified|absent`）
   - `notification`: AKA-Notification の期待値。`code`（S・P ビットを含むコード値。32768 は成功、16384 は認証前の失敗）、`present`（受け取ったか）
   - `bidding`: AT_BIDDING の期待値。`present`（受け取ったか）、`d_bit`、`action`（ピアの動作 `reject|ignore`）。省略した項目は検査しない
 
@@ -253,14 +269,21 @@ sudo usermod -aG wireshark $USER
 | R-05 | メソッドの完了前や失敗後に成功を通知しない | RFC 3748 §4.2、RFC 4187 §6.2 | MUST |
 | R-06 | メソッドの途中で EAP タイプを切り替えない | RFC 3748 §2.1 | MUST |
 | R-07 | MS-MPPE 鍵の Salt の最上位ビットが 1 で、Send/Recv で重複しない | RFC 2548 §2.4.2 | MUST |
+| A-01 | AKA-Identity は最大 3 回、AT_ANY_ID_REQ は 1 回目だけ、AT_PERMANENT_ID_REQ の後に Identity の要求をしない | RFC 4187 §4.1.5・§9.1 | MUST |
+| A-02 | AT_IV を再利用しない（`identity_store` の履歴で、実行をまたいでも調べる） | RFC 4187 §10.12 | MUST |
+| A-05 | AT_ENCR_DATA が 16 バイトの倍数で、AT_PADDING がゼロ埋めで最後にある | RFC 4187 §10.12 | MUST |
+| A-06 | AT_NEXT_PSEUDONYM にレルムを含めず、AT_NEXT_PSEUDONYM / AT_NEXT_REAUTH_ID は暗号化して送る | RFC 4187 §10.10・§10.11 | MUST |
+| A-07 | AT_RESULT_IND を AT_ENCR_DATA の中に入れない | RFC 4187 §10.14 | MUST |
 | A-08 | AKA-Notification は P=1 なら S=0、P=0 は認証成功後だけ、1 回の交換で 1 回だけ、成功通知は AT_RESULT_IND を使ったときだけ | RFC 4187 §6.1・§6.2 | MUST |
 | A-09 | AT_BIDDING を EAP-AKA' のメッセージに入れない | RFC 9048 §4 | MUST |
 | A-10 | ピアの Client-Error / Authentication-Reject の後は EAP-Failure を送る（別の Request を送らない） | RFC 4187 §6.3.1 | MUST |
 | A-12 | EAP-AKA' の AUTN の AMF 分離ビットが 1 | RFC 9048 §3.3 | MUST |
 | A-13 | AT_KDF_INPUT があり、ネットワーク名が空でない | RFC 9048 §3.1 | MUST |
+| A-14 | EAP-AKA' の仮名に IMSI が含まれていない（推定による判定なので、既定は warn） | RFC 9048 §5.2 | MUST |
 | A-16 | EAP-AKA/AKA' の要求の形式が正しい（既知の Subtype、未知のスキップ不可属性がない、必須属性がある） | RFC 4187 §6.3.1・§8.1 | MUST |
 | A-17 | AT_KDF の再提示が、選んだ KDF を元の offer の先頭に足しただけのもの | RFC 9048 §3.2 | MUST |
 | A-18 | 要求の AT_MAC があり、正しい | RFC 4187 §10.15 | MUST |
+| A-19 | AT_CHECKCODE が、やりとりした AKA-Identity と一致する | RFC 4187 §10.13、RFC 9048 §3.4.3 | MUST |
 
 違反はトレースに次の形で出力し、実行の最後に件数をまとめます。
 
@@ -289,6 +312,11 @@ conformance violations=1 fail=0 warn=1 ids=R-02
   - P=0（認証後）の通知は、AT_MAC を検証してから AT_MAC 付きで応答します。
   - 失敗通知を受けた後の成功と、AT_RESULT_IND を使ったのに成功通知がない Accept は、R-05 の違反です。
 - RFC 3748 の Notification（Type 2）には空の応答を返し、表示用のメッセージをトレースに出します。
+- Challenge の AT_ENCR_DATA は、AT_MAC を検証した後に復号します。
+  - 受け取った仮名（AT_NEXT_PSEUDONYM）は、Access-Accept を受けたら `identity_store` に保存します。
+  - 復号できない、パディングが不正、未知のスキップ不可属性がある場合は、Client-Error を返します。
+  - 再認証 ID（AT_NEXT_REAUTH_ID）は受け取ったことだけを記録します。保存と利用は今後対応します。
+- AT_CHECKCODE は、AKA-Identity の Request / Response を送受信したままの形でつないで照合します。一致しなければ Client-Error を返します。
 - EAP-AKA' の KDF 交渉に対応しています。offer の先頭の KDF に対応していなければ AT_KDF だけを返し、サーバの再提示を確かめます。
 
 ### 異常系の注入

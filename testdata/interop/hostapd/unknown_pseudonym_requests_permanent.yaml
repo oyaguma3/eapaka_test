@@ -1,0 +1,10 @@
+version: 1
+name: unknown_pseudonym_requests_permanent
+description: サーバが知らない仮名で始めると、AT_PERMANENT_ID_REQ で永続 ID を求められ、永続 ID で認証できる（RFC 4187 §4.1.7）
+identity: "2unknown@wlan.mnc010.mcc440.3gppnetwork.org"
+identity_store: { persist: false }
+expect:
+  result: accept
+  identity_requests: [any, permanent]
+trace:
+  level: verbose

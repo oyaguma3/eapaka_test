@@ -1,0 +1,10 @@
+version: 1
+name: checkcode_with_identity_round
+description: AKA-Identity のやりとりの後の Challenge で、AT_CHECKCODE が一致する（RFC 4187 §10.13）
+identity: "6440100123456789@wlan.mnc010.mcc440.3gppnetwork.org"
+identity_store: { persist: false }
+expect:
+  result: accept
+  checkcode: verified
+trace:
+  level: verbose
