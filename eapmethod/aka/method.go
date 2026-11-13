@@ -1,6 +1,9 @@
 package aka
 
 import (
+	"bytes"
+	"cmp"
+	"errors"
 	"fmt"
 
 	"github.com/oyaguma3/eapaka_test/eap"
@@ -24,6 +27,12 @@ type Options struct {
 	PermanentIDPolicy                 string
 	PermanentIdentityOverride         string
 	OuterIdentityUpdateOnPermanentReq *bool
+
+	// EmptyKdfInput は空の AT_KDF_INPUT の扱い。"reject"（既定、RFC 9048 §3.1）か
+	// "fallback"（NetName で補う互換モード）。
+	EmptyKdfInput string
+	// NetNameCheck は AT_KDF_INPUT と NetName の照合。"off"（既定）、"warn"、"reject"。
+	NetNameCheck string
 }
 
 // Method implements the EAP method for AKA and AKA'.
@@ -41,6 +50,9 @@ type Method struct {
 	permanentIDPolicy                 string
 	permanentIdentityOverride         string
 	outerIdentityUpdateOnPermanentReq bool
+
+	emptyKdfInput string
+	netNameCheck  string
 
 	s akaSession
 }
@@ -77,6 +89,9 @@ func New(opts Options) (*Method, error) {
 		permanentIDPolicy:                 normalizePermanentPolicy(opts.PermanentIDPolicy),
 		permanentIdentityOverride:         opts.PermanentIdentityOverride,
 		outerIdentityUpdateOnPermanentReq: defaultOuterUpdate(opts.OuterIdentityUpdateOnPermanentReq),
+
+		emptyKdfInput: cmp.Or(opts.EmptyKdfInput, "reject"),
+		netNameCheck:  cmp.Or(opts.NetNameCheck, "off"),
 	}
 	return method, nil
 }
@@ -95,31 +110,75 @@ func (m *Method) Handle(req eap.Packet, sess *eap.Session) (*eap.Packet, error) 
 	if err != nil {
 		return nil, err
 	}
-	akaReq, err := eapaka.Parse(raw)
-	if err != nil {
-		return nil, err
-	}
-	if akaReq.Type != m.methodType {
-		return nil, fmt.Errorf("aka: method type mismatch %d", akaReq.Type)
-	}
-
 	session := sess
 	if session == nil {
 		session = &eap.Session{}
 	}
-
-	resp, err := m.dispatch(akaReq, session)
+	resp, err := m.handle(req, raw, session)
 	session.Obs.Method = m.s.phase.methodState()
 	return resp, err
 }
 
-func (m *Method) dispatch(akaReq *eapaka.Packet, session *eap.Session) (*eap.Packet, error) {
+func (m *Method) handle(req eap.Packet, raw []byte, sess *eap.Session) (*eap.Packet, error) {
+	if req.Type != m.methodType {
+		return nil, fmt.Errorf("aka: method type mismatch %d", req.Type)
+	}
+	akaReq, err := eapaka.Parse(raw)
+	if errors.Is(err, eapaka.ErrEmptyKdfInput) && req.Type == eap.TypeAKAPrime {
+		// RFC 9048 §3.1: 空の AT_KDF_INPUT では認証を続けない
+		sess.Conformance.Report("A-13", "AT_KDF_INPUT has an empty network name")
+		m.s.emptyKdfInputReported = true
+		if m.emptyKdfInput != "fallback" || m.netName == "" {
+			return m.authenticationReject(&eapaka.Packet{Identifier: req.Identifier, Type: req.Type}), nil
+		}
+		// 互換モード: 空の AT_KDF_INPUT を読み飛ばして解析し、設定のネットワーク名で補う。
+		// AT_MAC は受信したバイト列（raw）のまま検証する
+		akaReq, err = eapaka.Parse(maskAttribute(raw, eapaka.AT_KDF_INPUT))
+	}
+	if err != nil {
+		if errors.Is(err, eapaka.ErrMalformedPacket) || errors.Is(err, eapaka.ErrMalformedAttribute) {
+			// RFC 4187 §6.3.1: 解析できないパケットには Client-Error を返す
+			sess.Conformance.Report("A-16", "malformed EAP-AKA request: %v", err)
+			return m.clientErrorFor(req)
+		}
+		return nil, err
+	}
+	for _, attr := range akaReq.Attributes {
+		if g, ok := attr.(*eapaka.GenericAttribute); ok && !eapaka.IsSkippable(g.AttrType) {
+			// RFC 4187 §8.1: 未知のスキップ不可属性があればパケットを処理しない
+			sess.Conformance.Report("A-16", "unknown non-skippable attribute %d in subtype %d", g.AttrType, akaReq.Subtype)
+			return m.clientError(akaReq)
+		}
+	}
+
 	switch akaReq.Subtype {
 	case eapaka.SubtypeIdentity:
-		return m.handleIdentity(akaReq, session)
+		return m.handleIdentity(akaReq, sess)
 	case eapaka.SubtypeChallenge:
-		return m.handleChallenge(akaReq, session)
-	default:
+		return m.handleChallenge(akaReq, raw, sess)
+	case eapaka.SubtypeNotification, eapaka.SubtypeReauthentication:
+		// ツールがまだ対応していない（Phase 3・5 で対応する）
 		return nil, fmt.Errorf("aka: unsupported subtype %d", akaReq.Subtype)
+	default:
+		// 未定義の Subtype や、ピアからしか送らない Subtype（Authentication-Reject など）
+		sess.Conformance.Report("A-16", "unexpected subtype %d in EAP-Request", akaReq.Subtype)
+		return m.clientError(akaReq)
 	}
+}
+
+// maskAttribute は、raw の中の型 t の属性を、未割り当てのスキップ可能な型（255）に
+// 書き換えたコピーを返す。解析で読み飛ばさせるためだけに使う。
+func maskAttribute(raw []byte, t eapaka.AttributeType) []byte {
+	out := bytes.Clone(raw)
+	for off := 8; off+2 <= len(out); {
+		length := int(out[off+1]) * 4
+		if length == 0 {
+			break
+		}
+		if eapaka.AttributeType(out[off]) == t {
+			out[off] = 255
+		}
+		off += length
+	}
+	return out
 }

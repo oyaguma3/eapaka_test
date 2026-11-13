@@ -70,6 +70,7 @@ func Run(ctx context.Context, cfg config.Config, tc testcase.Case) Result {
 		res.ExitCode, res.Err = wrap(2, err, "setup")
 	} else {
 		peer.Session.Conformance = rec
+		peer.Session.OnWarn = logger.LogWarn
 		res.ExitCode, res.Err = exchange(ctx, merged, tc, peer, rec, logger)
 		res.Obs = peer.Session.Obs
 	}

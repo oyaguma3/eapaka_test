@@ -96,6 +96,14 @@ func (l *Logger) LogMPPE(keys radiusc.MPPEKeys) {
 	fmt.Fprintln(l.Out, line)
 }
 
+// LogWarn writes a warning that is not a conformance violation.
+func (l *Logger) LogWarn(msg string) {
+	if l == nil || l.Out == nil {
+		return
+	}
+	fmt.Fprintf(l.Out, "warn %s\n", msg)
+}
+
 // LogViolation writes one conformance violation (design doc §8).
 func (l *Logger) LogViolation(v conformance.Violation) {
 	if l == nil || l.Out == nil {

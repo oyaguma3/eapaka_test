@@ -17,7 +17,8 @@ func (m *Method) handleIdentity(req *eapaka.Packet, sess *eap.Session) (*eap.Pac
 			return nil, err
 		}
 		if !ok {
-			return m.authenticationReject(req), nil
+			// RFC 4187 §4.1.5: 永続 ID を明かさないときは Client-Error を返す
+			return m.clientError(req)
 		}
 		sess.InnerIdentity = permanent
 		if m.outerIdentityUpdateOnPermanentReq {

@@ -2,54 +2,64 @@ package aka
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
+	"github.com/oyaguma3/eapaka_test/conformance"
 	"github.com/oyaguma3/eapaka_test/eap"
 
 	eapaka "github.com/oyaguma3/go-eapaka"
 	"github.com/wmnsk/milenage"
 )
 
-func (m *Method) handleChallenge(req *eapaka.Packet, sess *eap.Session) (*eap.Packet, error) {
-	rand, autn, netName, err := m.extractChallengeParams(req)
-	if err != nil {
-		return nil, err
+// handleChallenge は EAP-Request/AKA-Challenge（AKA'-Challenge）を処理する。
+//
+// 処理の順番は RFC 4187 §9.3・§10.15 と RFC 9048 §3 に合わせる。
+//  1. EAP-AKA' では AT_KDF の交渉と AT_KDF_INPUT の確認
+//  2. AUTN の検証（誤りなら Authentication-Reject）、EAP-AKA' の AMF 分離ビット
+//  3. SQN の範囲（範囲外なら Synchronization-Failure）
+//  4. AT_MAC の検証（誤りなら Client-Error）。受信したバイト列のまま検証する
+func (m *Method) handleChallenge(req *eapaka.Packet, raw []byte, sess *eap.Session) (*eap.Packet, error) {
+	rec := sess.Conformance
+	rand, autn, ok := challengeVectors(req)
+	if !ok {
+		rec.Report("A-16", "AKA-Challenge lacks a valid AT_RAND or AT_AUTN")
+		return m.clientError(req)
 	}
+
+	var netName string
+	if req.Type == eapaka.TypeAKAPrime {
+		if resp, done, err := m.negotiateKdf(req, rec); done || err != nil {
+			return resp, err
+		}
+		var resp *eap.Packet
+		netName, resp = m.kdfInputNetName(req, sess)
+		if resp != nil {
+			return resp, nil
+		}
+	}
+
 	res, ck, ik, ak, err := m.computeVectors(rand)
 	if err != nil {
 		return nil, err
 	}
-	identity := sess.InnerIdentity
-	if identity == "" {
-		identity = sess.OuterIdentity
-	}
-	if identity == "" {
-		return nil, fmt.Errorf("aka: inner identity is required")
-	}
-
-	kdfAttrs, err := selectKdfResponseAttrs(req)
-	if err != nil {
-		return nil, err
-	}
-	kAut, err := m.deriveKAut(identity, ck, ik, netName, autn)
-	if err != nil {
-		return nil, err
-	}
-	if err := verifyRequestMac(req, kAut); err != nil {
-		return m.authenticationReject(req), nil
-	}
-
 	sqnBytes, amf, err := m.decodeAutn(autn, ak)
 	if err != nil {
 		return nil, err
 	}
-	if !bytes.Equal(amf, m.amfBytes()) {
-		return nil, fmt.Errorf("aka: amf mismatch")
-	}
-
 	if ok, err := m.verifyMacA(rand, sqnBytes, amf, autn); err != nil {
 		return nil, err
 	} else if !ok {
+		return m.authenticationReject(req), nil
+	}
+	if !bytes.Equal(amf, m.amfBytes()) {
+		sess.Warnf("AUTN AMF %x differs from sim.amf %x", amf, m.amfBytes())
+	}
+	if req.Type == eapaka.TypeAKAPrime && amf[0]&0x80 == 0 {
+		// RFC 9048 §3.3: 分離ビットが 0 なら AUTN が誤っているのと同じに扱う
+		rec.Report("A-12", "AMF %x in EAP-AKA' AUTN does not have the separation bit set", amf)
 		return m.authenticationReject(req), nil
 	}
 
@@ -67,19 +77,39 @@ func (m *Method) handleChallenge(req *eapaka.Packet, sess *eap.Session) (*eap.Pa
 		}
 	}
 
-	attrs := []eapaka.Attribute{
-		&eapaka.AtRes{Res: res},
+	identity := sess.InnerIdentity
+	if identity == "" {
+		identity = sess.OuterIdentity
 	}
-	if len(kdfAttrs) > 0 {
-		attrs = append(attrs, kdfAttrs...)
+	if identity == "" {
+		return nil, fmt.Errorf("aka: inner identity is required")
 	}
-	attrs = append(attrs, &eapaka.AtMac{MAC: make([]byte, 16)})
+	kAut, err := m.deriveKAut(identity, ck, ik, netName, autn)
+	if err != nil {
+		return nil, err
+	}
+	macOK, err := eapaka.VerifyMacRaw(raw, kAut, nil)
+	switch {
+	case errors.Is(err, eapaka.ErrMacNotFound):
+		rec.Report("A-18", "AKA-Challenge lacks AT_MAC")
+		return m.clientError(req)
+	case err != nil:
+		rec.Report("A-16", "AKA-Challenge AT_MAC cannot be verified: %v", err)
+		return m.clientError(req)
+	case !macOK:
+		rec.Report("A-18", "AKA-Challenge AT_MAC is invalid")
+		return m.clientError(req)
+	}
+
 	resp := &eapaka.Packet{
 		Code:       eapaka.CodeResponse,
 		Identifier: req.Identifier,
 		Type:       req.Type,
 		Subtype:    eapaka.SubtypeChallenge,
-		Attributes: attrs,
+		Attributes: []eapaka.Attribute{
+			&eapaka.AtRes{Res: res},
+			&eapaka.AtMac{MAC: make([]byte, 16)},
+		},
 	}
 	if err := resp.CalculateAndSetMac(kAut); err != nil {
 		return nil, err
@@ -88,58 +118,106 @@ func (m *Method) handleChallenge(req *eapaka.Packet, sess *eap.Session) (*eap.Pa
 	return toEAPPacket(resp)
 }
 
-func (m *Method) extractChallengeParams(req *eapaka.Packet) ([]byte, []byte, string, error) {
-	var rand []byte
-	var autn []byte
-	var netName string
+// challengeVectors は AT_RAND と AT_AUTN の値を取り出す。どちらかがなければ ok は false。
+func challengeVectors(req *eapaka.Packet) (rand, autn []byte, ok bool) {
 	for _, attr := range req.Attributes {
 		switch a := attr.(type) {
 		case *eapaka.AtRand:
-			rand = append([]byte(nil), a.Rand...)
+			rand = bytes.Clone(a.Rand)
 		case *eapaka.AtAutn:
-			autn = append([]byte(nil), a.Autn...)
-		case *eapaka.AtKdfInput:
+			autn = bytes.Clone(a.Autn)
+		}
+	}
+	return rand, autn, len(rand) == 16 && len(autn) == 16
+}
+
+// negotiateKdf は EAP-AKA' の AT_KDF を処理する（RFC 9048 §3.2）。
+// done が true なら resp をそのまま返す（AT_KDF だけの応答、Client-Error、Authentication-Reject）。
+func (m *Method) negotiateKdf(req *eapaka.Packet, rec *conformance.Recorder) (resp *eap.Packet, done bool, err error) {
+	offer := eapaka.KdfValuesFromAttributes(req.Attributes)
+	if len(offer) == 0 {
+		rec.Report("A-16", "AKA'-Challenge lacks AT_KDF")
+		resp, err = m.clientError(req)
+		return resp, true, err
+	}
+	supported := eapaka.KDFAKAPrimeWithCKIK
+
+	if m.s.kdfOffer != nil {
+		// AT_KDF だけの応答に対する再提示。選んだ値を元の offer の先頭に足しただけかを確かめる
+		original := m.s.kdfOffer
+		m.s.kdfOffer = nil
+		if err := eapaka.ValidateKdfReoffer(original, offer, m.s.kdfSelected); err != nil {
+			// RFC 9048 §3.2: AT_MAC が不正なときと同じに扱う
+			rec.Report("A-17", "AT_KDF re-offer %v does not match the original offer %v: %v", offer, original, err)
+			resp, err = m.clientError(req)
+			return resp, true, err
+		}
+		return nil, false, nil
+	}
+
+	if err := eapaka.ValidateKdfOffer(offer); err != nil {
+		rec.Report("A-16", "invalid AT_KDF offer %v: %v", offer, err)
+		resp, err = m.clientError(req)
+		return resp, true, err
+	}
+	if offer[0] == supported {
+		return nil, false, nil
+	}
+	if !slices.Contains(offer, supported) {
+		// 対応できる KDF がない
+		return m.authenticationReject(req), true, nil
+	}
+	// 対応できる KDF を AT_KDF だけで返し、サーバの再提示を待つ
+	m.s.kdfOffer = slices.Clone(offer)
+	m.s.kdfSelected = supported
+	m.s.phase = phaseKdfNegotiation
+	resp, err = toEAPPacket(&eapaka.Packet{
+		Code:       eapaka.CodeResponse,
+		Identifier: req.Identifier,
+		Type:       req.Type,
+		Subtype:    eapaka.SubtypeChallenge,
+		Attributes: []eapaka.Attribute{&eapaka.AtKdf{KDF: supported}},
+	})
+	return resp, true, err
+}
+
+// kdfInputNetName は AT_KDF_INPUT のネットワーク名を返す（RFC 9048 §3.1）。
+// 認証を続けられないときは、返すべき応答を resp に入れる。
+func (m *Method) kdfInputNetName(req *eapaka.Packet, sess *eap.Session) (netName string, resp *eap.Packet) {
+	for _, attr := range req.Attributes {
+		if a, ok := attr.(*eapaka.AtKdfInput); ok {
 			netName = a.NetworkName
 		}
 	}
-	if len(rand) != 16 {
-		return nil, nil, "", fmt.Errorf("aka: AT_RAND is required")
-	}
-	if len(autn) != 16 {
-		return nil, nil, "", fmt.Errorf("aka: AT_AUTN is required")
-	}
-	if req.Type == eapaka.TypeAKAPrime {
-		if netName == "" {
-			netName = m.netName
+	if netName == "" {
+		if !m.s.emptyKdfInputReported {
+			sess.Conformance.Report("A-13", "AKA'-Challenge lacks AT_KDF_INPUT")
 		}
-		if netName == "" {
-			return nil, nil, "", fmt.Errorf("aka: net_name is required for AKA'")
+		if m.emptyKdfInput == "fallback" && m.netName != "" {
+			sess.Warnf("using eap.aka_prime.net_name %q in place of the empty AT_KDF_INPUT", m.netName)
+			return m.netName, nil
+		}
+		return "", m.authenticationReject(req)
+	}
+	if m.netNameCheck != "off" && m.netName != "" && !netNameMatches(netName, m.netName) {
+		sess.Warnf("AT_KDF_INPUT %q does not match eap.aka_prime.net_name %q", netName, m.netName)
+		if m.netNameCheck == "reject" {
+			return "", m.authenticationReject(req)
 		}
 	}
-	return rand, autn, netName, nil
+	return netName, nil
 }
 
-func selectKdfResponseAttrs(req *eapaka.Packet) ([]eapaka.Attribute, error) {
-	if req.Type != eapaka.TypeAKAPrime {
-		return nil, nil
-	}
-	offer := eapaka.KdfValuesFromAttributes(req.Attributes)
-	if len(offer) == 0 {
-		return nil, nil
-	}
-	if err := eapaka.ValidateKdfOffer(offer); err != nil {
-		return nil, fmt.Errorf("aka: invalid AT_KDF offer: %w", err)
-	}
-	supported := eapaka.KDFAKAPrimeWithCKIK
-	if offer[0] == supported {
-		return nil, nil
-	}
-	for _, v := range offer {
-		if v == supported {
-			return []eapaka.Attribute{&eapaka.AtKdf{KDF: supported}}, nil
+// netNameMatches はネットワーク名をコロン区切りのフィールドごとに比べる。
+// フィールド数の少ない方に合わせて、先頭から比べる（RFC 9048 §3.1）。
+func netNameMatches(a, b string) bool {
+	fa, fb := strings.Split(a, ":"), strings.Split(b, ":")
+	for i := range min(len(fa), len(fb)) {
+		if fa[i] != fb[i] {
+			return false
 		}
 	}
-	return nil, fmt.Errorf("aka: unsupported AT_KDF offer")
+	return true
 }
 
 func (m *Method) computeVectors(rand []byte) ([]byte, []byte, []byte, []byte, error) {
@@ -168,10 +246,10 @@ func (m *Method) decodeAutn(autn, ak []byte) ([]byte, []byte, error) {
 		return nil, nil, fmt.Errorf("aka: invalid AK length")
 	}
 	sqn := make([]byte, 6)
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		sqn[i] = autn[i] ^ ak[i]
 	}
-	amf := append([]byte(nil), autn[6:8]...)
+	amf := bytes.Clone(autn[6:8])
 	return sqn, amf, nil
 }
 
@@ -188,28 +266,4 @@ func (m *Method) verifyMacA(rand, sqn, amf, autn []byte) (bool, error) {
 
 func (m *Method) amfBytes() []byte {
 	return []byte{byte(m.amf >> 8), byte(m.amf)}
-}
-
-func verifyRequestMac(req *eapaka.Packet, kAut []byte) error {
-	_, hasMac := findMac(req)
-	if !hasMac {
-		return fmt.Errorf("aka: AT_MAC missing")
-	}
-	ok, err := req.VerifyMac(kAut)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return fmt.Errorf("aka: request MAC mismatch")
-	}
-	return nil
-}
-
-func findMac(req *eapaka.Packet) (*eapaka.AtMac, bool) {
-	for _, attr := range req.Attributes {
-		if mac, ok := attr.(*eapaka.AtMac); ok {
-			return mac, true
-		}
-	}
-	return nil, false
 }

@@ -366,11 +366,12 @@ func (s *Server) challenge(sess *session, state []byte, kdfAttrs []eapaka.Attrib
 		}
 		keys := eapaka.DeriveKeysAKAPrime(sess.identity, ckp, ikp)
 		sess.kAut, sess.msk = keys.K_aut, keys.MSK
-		netName := s.cfg.NetName
 		if f.EmptyKdfInput {
-			netName = ""
+			// go-eapaka は空のネットワーク名を組み立てないので、値（長さ 0）を直接入れる
+			attrs = append(attrs, &eapaka.GenericAttribute{AttrType: eapaka.AT_KDF_INPUT, Data: []byte{0, 0}})
+		} else {
+			attrs = append(attrs, &eapaka.AtKdfInput{NetworkName: s.cfg.NetName})
 		}
-		attrs = append(attrs, &eapaka.AtKdfInput{NetworkName: netName})
 		if kdfAttrs == nil {
 			sess.kdfOffer = s.cfg.KDFOffer
 			kdfAttrs, err = eapaka.BuildKdfOfferAttributes(sess.kdfOffer)

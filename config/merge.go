@@ -41,6 +41,12 @@ func ApplyTestcase(base Config, tc testcase.Case) Config {
 	if tc.EAP.AKAPrime.NetName != "" {
 		out.EAP.AKAPrime.NetName = tc.EAP.AKAPrime.NetName
 	}
+	if tc.EAP.AKAPrime.NetNameCheck != "" {
+		out.EAP.AKAPrime.NetNameCheck = tc.EAP.AKAPrime.NetNameCheck
+	}
+	if tc.EAP.AKAPrime.EmptyKdfInput != "" {
+		out.EAP.AKAPrime.EmptyKdfInput = tc.EAP.AKAPrime.EmptyKdfInput
+	}
 
 	if len(tc.Conformance.Rules) > 0 {
 		rules := maps.Clone(base.Conformance.Rules)

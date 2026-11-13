@@ -15,6 +15,15 @@ type Session struct {
 	Conformance *conformance.Recorder
 	// Obs は期待値の判定とトレースに使う観測結果（設計書 §4.1）。
 	Obs Observations
+	// OnWarn は、違反ではないが知らせたい事柄（設定値との不一致など）を受け取る。
+	OnWarn func(msg string)
+}
+
+// Warnf は OnWarn に警告を渡す。OnWarn が nil なら何もしない。
+func (s *Session) Warnf(format string, args ...any) {
+	if s != nil && s.OnWarn != nil {
+		s.OnWarn(fmt.Sprintf(format, args...))
+	}
 }
 
 // MethodState は EAP メソッドの進み具合。

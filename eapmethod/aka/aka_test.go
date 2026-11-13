@@ -174,8 +174,9 @@ func TestHandlePermanentIDDeny(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse response failed: %v", err)
 	}
-	if akaResp.Subtype != eapaka.SubtypeAuthenticationReject {
-		t.Fatalf("expected authentication reject")
+	// RFC 4187 §4.1.5: 永続 ID を明かさないときは Client-Error(0) を返す
+	if akaResp.Subtype != eapaka.SubtypeClientError {
+		t.Fatalf("expected client error, got subtype %d", akaResp.Subtype)
 	}
 }
 
@@ -240,6 +241,24 @@ func TestHandleAnyFullauthIdReq(t *testing.T) {
 		}
 		if !found {
 			t.Fatalf("%s expected AT_IDENTITY", tc.name)
+		}
+	}
+}
+
+func TestNetNameMatches(t *testing.T) {
+	tests := []struct {
+		a, b string
+		want bool
+	}{
+		{"WLAN", "WLAN", true},
+		{"5G:mnc010.mcc440.3gppnetwork.org", "5G", true},
+		{"5G:mnc010.mcc440.3gppnetwork.org", "5G:mnc010.mcc440.3gppnetwork.org:extra", true},
+		{"5G:mnc010.mcc440.3gppnetwork.org", "5G:mnc020.mcc440.3gppnetwork.org", false},
+		{"WLAN", "wlan", false},
+	}
+	for _, tt := range tests {
+		if got := netNameMatches(tt.a, tt.b); got != tt.want {
+			t.Errorf("netNameMatches(%q, %q) = %t, want %t", tt.a, tt.b, got, tt.want)
 		}
 	}
 }

@@ -41,6 +41,10 @@ type EAPConfig struct {
 
 type AKAPrimeConfig struct {
 	NetName string `yaml:"net_name"`
+	// NetNameCheck は AT_KDF_INPUT と net_name の照合（off / warn / reject、設計書 §6.3）。
+	NetNameCheck string `yaml:"net_name_check"`
+	// EmptyKdfInput は空の AT_KDF_INPUT の扱い（reject / fallback、設計書 §6.3）。
+	EmptyKdfInput string `yaml:"empty_kdf_input"`
 }
 
 type IdentityConfig struct {
@@ -134,6 +138,12 @@ func (c *Config) ApplyDefaults() {
 	if c.SQNStore.Mode == "" {
 		c.SQNStore.Mode = "file"
 	}
+	if c.EAP.AKAPrime.NetNameCheck == "" {
+		c.EAP.AKAPrime.NetNameCheck = "off"
+	}
+	if c.EAP.AKAPrime.EmptyKdfInput == "" {
+		c.EAP.AKAPrime.EmptyKdfInput = "reject"
+	}
 }
 
 // Validate checks required fields and basic format constraints.
@@ -172,6 +182,12 @@ func (c Config) Validate() error {
 	}
 	if !isOneOf(c.EAP.PermanentIDPolicy, "always", "conservative", "deny") {
 		return fmt.Errorf("config: eap.permanent_id_policy must be always, conservative, or deny")
+	}
+	if !isOneOf(c.EAP.AKAPrime.NetNameCheck, "off", "warn", "reject") {
+		return fmt.Errorf("config: eap.aka_prime.net_name_check must be off, warn, or reject")
+	}
+	if !isOneOf(c.EAP.AKAPrime.EmptyKdfInput, "reject", "fallback") {
+		return fmt.Errorf("config: eap.aka_prime.empty_kdf_input must be reject or fallback")
 	}
 	if _, err := c.Conformance.Policy(); err != nil {
 		return err

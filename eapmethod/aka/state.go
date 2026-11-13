@@ -21,6 +21,8 @@ type akaSession struct {
 	identityRounds int      // AKA-Identity の往復回数
 	kdfOffer       []uint16 // AT_KDF 交渉の元の offer（再提示の検証に使う）
 	kdfSelected    uint16   // AT_KDF だけの応答で選んだ KDF
+
+	emptyKdfInputReported bool // 空の AT_KDF_INPUT を A-13 として記録済み
 }
 
 // methodState は、EAP 層の判定（R-05 など）に使うメソッドの進み具合に変換する。

@@ -52,7 +52,9 @@ type EAP struct {
 }
 
 type AKAPrime struct {
-	NetName string `yaml:"net_name"`
+	NetName       string `yaml:"net_name"`
+	NetNameCheck  string `yaml:"net_name_check"`
+	EmptyKdfInput string `yaml:"empty_kdf_input"`
 }
 
 type SQN struct {
@@ -99,6 +101,12 @@ func (c Case) Validate() error {
 	}
 	if c.EAP.PermanentIDPolicy != "" && !isOneOf(c.EAP.PermanentIDPolicy, "always", "conservative", "deny") {
 		return fmt.Errorf("testcase: eap.permanent_id_policy must be always, conservative, or deny")
+	}
+	if c.EAP.AKAPrime.NetNameCheck != "" && !isOneOf(c.EAP.AKAPrime.NetNameCheck, "off", "warn", "reject") {
+		return fmt.Errorf("testcase: eap.aka_prime.net_name_check must be off, warn, or reject")
+	}
+	if c.EAP.AKAPrime.EmptyKdfInput != "" && !isOneOf(c.EAP.AKAPrime.EmptyKdfInput, "reject", "fallback") {
+		return fmt.Errorf("testcase: eap.aka_prime.empty_kdf_input must be reject or fallback")
 	}
 	if c.Trace.Level != "" && !isOneOf(c.Trace.Level, "normal", "verbose") {
 		return fmt.Errorf("testcase: trace.level must be normal or verbose")

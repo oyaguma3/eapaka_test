@@ -57,6 +57,8 @@ func BuildPeer(cfg config.Config, tc testcase.Case, store sqnstore.Store) (*eap.
 		OPC:                               opc,
 		AMF:                               amf,
 		NetName:                           merged.EAP.AKAPrime.NetName,
+		NetNameCheck:                      merged.EAP.AKAPrime.NetNameCheck,
+		EmptyKdfInput:                     merged.EAP.AKAPrime.EmptyKdfInput,
 		Realm:                             merged.Identity.Realm,
 		InitialSQN:                        sqnInitial,
 		SQNStore:                          store,
