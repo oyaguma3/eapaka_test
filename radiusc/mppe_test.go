@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"testing"
 
+	eapaka "github.com/oyaguma3/go-eapaka"
+
 	"layeh.com/radius"
 	"layeh.com/radius/rfc2865"
 )
@@ -37,4 +39,31 @@ func makeTLV(typ byte, value []byte) []byte {
 	out[1] = byte(len(out))
 	copy(out[2:], value)
 	return out
+}
+
+func TestDecryptMPPEKeys(t *testing.T) {
+	secret := []byte("secret")
+	var reqAuth [16]byte
+	copy(reqAuth[:], "0123456789abcdef")
+	sendKey := bytes.Repeat([]byte{0x11}, 32)
+	recvKey := bytes.Repeat([]byte{0x22}, 32)
+	encSend, err := eapaka.EncryptMPPEKey(sendKey, secret, reqAuth[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	encRecv, err := eapaka.EncryptMPPEKey(recvKey, secret, reqAuth[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := MPPEKeys{SendKey: encSend, RecvKey: encRecv, SendKeyPresent: true, RecvKeyPresent: true}
+	send, recv, err := DecryptMPPEKeys(keys, secret, reqAuth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(send, sendKey) || !bytes.Equal(recv, recvKey) {
+		t.Error("decrypted keys differ from the originals")
+	}
+	if _, _, err := DecryptMPPEKeys(MPPEKeys{SendKey: encSend, SendKeyPresent: true}, secret, reqAuth); err == nil {
+		t.Error("missing Recv-Key accepted")
+	}
 }

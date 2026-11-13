@@ -3,6 +3,8 @@ package radiusc
 import (
 	"fmt"
 
+	eapaka "github.com/oyaguma3/go-eapaka"
+
 	"layeh.com/radius"
 	"layeh.com/radius/rfc2865"
 )
@@ -77,4 +79,19 @@ func parseVendorTLVs(b []byte) ([]vendorTLV, error) {
 		b = b[length:]
 	}
 	return out, nil
+}
+
+// DecryptMPPEKeys は MS-MPPE-Send-Key と MS-MPPE-Recv-Key を復号する（RFC 2548 §2.4.2-3）。
+// reqAuth は、応答に対応する Access-Request の Request Authenticator。
+func DecryptMPPEKeys(keys MPPEKeys, secret []byte, reqAuth [16]byte) (send, recv []byte, err error) {
+	if !keys.SendKeyPresent || !keys.RecvKeyPresent {
+		return nil, nil, fmt.Errorf("radiusc: MS-MPPE-Send-Key or MS-MPPE-Recv-Key is missing")
+	}
+	if send, err = eapaka.DecryptMPPEKey(keys.SendKey, secret, reqAuth[:]); err != nil {
+		return nil, nil, fmt.Errorf("radiusc: decrypt MS-MPPE-Send-Key: %w", err)
+	}
+	if recv, err = eapaka.DecryptMPPEKey(keys.RecvKey, secret, reqAuth[:]); err != nil {
+		return nil, nil, fmt.Errorf("radiusc: decrypt MS-MPPE-Recv-Key: %w", err)
+	}
+	return send, recv, nil
 }

@@ -66,6 +66,8 @@ type Faults struct {
 	SwitchMethod                bool // R-06: Challenge の応答を受けたら、別のメソッドの Challenge を送る
 	MPPESaltMSBClear            bool // R-07: MS-MPPE-Recv-Key の Salt の最上位ビットを 0 にする
 	MPPEDuplicateSalt           bool // R-07: MS-MPPE-Send-Key の Salt を Recv-Key と同じにする
+	MPPEWrongKey                bool // X2: MS-MPPE-Recv-Key に MSK と違う値を入れる
+	MPPESwapped                 bool // X2: Send-Key と Recv-Key に入れる MSK の半分を入れ替える
 
 	// EAP-AKA/AKA' 層
 	WrongAUTN            bool // AUTN の MAC-A を壊す（ピアは Authentication-Reject を返すべき）
@@ -494,11 +496,18 @@ const (
 
 // addMPPEKeys は RFC 5216 §2.3 の慣行どおり、Recv-Key に MSK[0:32]、Send-Key に MSK[32:64] を入れる。
 func addMPPEKeys(p *radius.Packet, msk, secret, reqAuth []byte, f Faults) error {
-	recv, err := eapaka.EncryptMPPEKey(msk[:32], secret, reqAuth)
+	recvKey, sendKey := bytes.Clone(msk[:32]), msk[32:64]
+	if f.MPPESwapped {
+		recvKey, sendKey = bytes.Clone(sendKey), recvKey
+	}
+	if f.MPPEWrongKey {
+		recvKey[0] ^= 0xff
+	}
+	recv, err := eapaka.EncryptMPPEKey(recvKey, secret, reqAuth)
 	if err != nil {
 		return err
 	}
-	send, err := eapaka.EncryptMPPEKey(msk[32:64], secret, reqAuth)
+	send, err := eapaka.EncryptMPPEKey(sendKey, secret, reqAuth)
 	if err != nil {
 		return err
 	}

@@ -96,6 +96,24 @@ func (l *Logger) LogMPPE(keys radiusc.MPPEKeys) {
 	fmt.Fprintln(l.Out, line)
 }
 
+// LogMSK writes the result of comparing the MS-MPPE keys with the MSK.
+// Key values are never written, even with unsafe logging.
+func (l *Logger) LogMSK(obs eap.Observations) {
+	if l == nil || l.Out == nil {
+		return
+	}
+	line := "mppe msk_match="
+	if obs.MSKMatch == nil {
+		line += "skipped"
+	} else {
+		line += fmt.Sprintf("%t", *obs.MSKMatch)
+	}
+	if obs.MSKDetail != "" {
+		line += fmt.Sprintf(" reason=%q", obs.MSKDetail)
+	}
+	fmt.Fprintln(l.Out, line)
+}
+
 // LogWarn writes a warning that is not a conformance violation.
 func (l *Logger) LogWarn(msg string) {
 	if l == nil || l.Out == nil {

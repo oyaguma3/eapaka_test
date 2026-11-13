@@ -35,3 +35,6 @@ conformance:
   default_must: "fail"
   default_should: "warn"
   rules: {}
+
+mppe:
+  mapping: "rfc5216"

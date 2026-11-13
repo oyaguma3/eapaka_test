@@ -17,6 +17,10 @@ type Session struct {
 	Obs Observations
 	// OnWarn は、違反ではないが知らせたい事柄（設定値との不一致など）を受け取る。
 	OnWarn func(msg string)
+
+	// MSK は、メソッドが最後に導出した MSK（64 バイト）。MS-MPPE 鍵との照合（X2）に使う。
+	// ログやトレースには出さない。
+	MSK []byte
 }
 
 // Warnf は OnWarn に警告を渡す。OnWarn が nil なら何もしない。
@@ -56,6 +60,10 @@ type Observations struct {
 	Method MethodState
 	// Faults は注入した異常（X4）。"at/action" の形で記録する。
 	Faults []string
+	// MSKMatch は MS-MPPE 鍵を復号した値と MSK の照合結果（X2）。照合しなかったときは nil。
+	MSKMatch *bool
+	// MSKDetail は、照合しなかった理由か、一致しなかった理由。
+	MSKDetail string
 }
 
 // Method handles EAP method-specific requests.

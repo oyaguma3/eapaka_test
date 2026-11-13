@@ -84,10 +84,11 @@ func (m *Method) handleChallenge(req *eapaka.Packet, raw []byte, sess *eap.Sessi
 	if identity == "" {
 		return nil, fmt.Errorf("aka: inner identity is required")
 	}
-	kAut, err := m.deriveKAut(identity, ck, ik, netName, autn)
+	keys, err := m.deriveKeys(identity, ck, ik, netName, autn)
 	if err != nil {
 		return nil, err
 	}
+	kAut := keys.kAut
 	macOK, err := eapaka.VerifyMacRaw(raw, kAut, nil)
 	switch {
 	case errors.Is(err, eapaka.ErrMacNotFound):
@@ -121,6 +122,8 @@ func (m *Method) handleChallenge(req *eapaka.Packet, raw []byte, sess *eap.Sessi
 		return nil, err
 	}
 	m.s.phase = phaseChallenged
+	m.s.keys = keys
+	sess.MSK = keys.msk
 	switch action {
 	case FaultCorruptMAC:
 		mac.MAC[len(mac.MAC)-1] ^= 0xff
@@ -239,17 +242,18 @@ func (m *Method) computeVectors(rand []byte) ([]byte, []byte, []byte, []byte, er
 	return mil.F2345()
 }
 
-func (m *Method) deriveKAut(identity string, ck, ik []byte, netName string, autn []byte) ([]byte, error) {
+// deriveKeys はフル認証の鍵を導出する（RFC 4187 §7、RFC 9048 §3.3）。
+func (m *Method) deriveKeys(identity string, ck, ik []byte, netName string, autn []byte) (sessionKeys, error) {
 	if m.methodType == eap.TypeAKA {
-		keys := eapaka.DeriveKeysAKA(identity, ck, ik)
-		return keys.K_aut, nil
+		k := eapaka.DeriveKeysAKA(identity, ck, ik)
+		return sessionKeys{kEncr: k.K_encr, kAut: k.K_aut, msk: k.MSK, emsk: k.EMSK, mk: k.MK}, nil
 	}
 	ckPrime, ikPrime, err := eapaka.DeriveCKPrimeIKPrime(ck, ik, netName, autn)
 	if err != nil {
-		return nil, err
+		return sessionKeys{}, err
 	}
-	keys := eapaka.DeriveKeysAKAPrime(identity, ckPrime, ikPrime)
-	return keys.K_aut, nil
+	k := eapaka.DeriveKeysAKAPrime(identity, ckPrime, ikPrime)
+	return sessionKeys{kEncr: k.K_encr, kAut: k.K_aut, msk: k.MSK, emsk: k.EMSK, kRe: k.K_re}, nil
 }
 
 func (m *Method) decodeAutn(autn, ak []byte) ([]byte, []byte, error) {

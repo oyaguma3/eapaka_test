@@ -23,6 +23,15 @@ type akaSession struct {
 	kdfSelected    uint16   // AT_KDF だけの応答で選んだ KDF
 
 	emptyKdfInputReported bool // 空の AT_KDF_INPUT を A-13 として記録済み
+
+	keys sessionKeys // 直近のフル認証で導出した鍵
+}
+
+// sessionKeys はフル認証で導出した鍵。ログやトレースには出さない。
+type sessionKeys struct {
+	kEncr, kAut, msk, emsk []byte
+	mk                     []byte // EAP-AKA の再認証の鍵導出に使う
+	kRe                    []byte // EAP-AKA' の再認証の鍵導出に使う
 }
 
 // methodState は、EAP 層の判定（R-05 など）に使うメソッドの進み具合に変換する。

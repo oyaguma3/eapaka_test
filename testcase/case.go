@@ -84,9 +84,11 @@ type Expect struct {
 }
 
 type MPPE struct {
-	RequirePresent *bool  `yaml:"require_present"`
-	SendKey        string `yaml:"send_key"`
-	RecvKey        string `yaml:"recv_key"`
+	RequirePresent *bool `yaml:"require_present"`
+	// VerifyMSK は、MS-MPPE 鍵を復号した値がピアの MSK と一致することを求める（X2）。
+	VerifyMSK bool   `yaml:"verify_msk"`
+	SendKey   string `yaml:"send_key"`
+	RecvKey   string `yaml:"recv_key"`
 }
 
 type Trace struct {

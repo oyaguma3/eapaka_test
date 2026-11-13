@@ -16,6 +16,14 @@ type Config struct {
 	SIM         SIMConfig         `yaml:"sim"`
 	SQNStore    SQNStoreConfig    `yaml:"sqn_store"`
 	Conformance ConformanceConfig `yaml:"conformance"`
+	MPPE        MPPEConfig        `yaml:"mppe"`
+}
+
+// MPPEConfig は MS-MPPE 鍵と MSK の対応付け（設計書 §6.2）。
+// Mapping が "rfc5216" なら Recv-Key = MSK[0:32]、Send-Key = MSK[32:64]（RFC 5216 §2.3 と
+// hostapd の慣行）。"swapped" なら逆にする。
+type MPPEConfig struct {
+	Mapping string `yaml:"mapping"`
 }
 
 type RadiusConfig struct {
@@ -144,6 +152,9 @@ func (c *Config) ApplyDefaults() {
 	if c.EAP.AKAPrime.EmptyKdfInput == "" {
 		c.EAP.AKAPrime.EmptyKdfInput = "reject"
 	}
+	if c.MPPE.Mapping == "" {
+		c.MPPE.Mapping = "rfc5216"
+	}
 }
 
 // Validate checks required fields and basic format constraints.
@@ -188,6 +199,9 @@ func (c Config) Validate() error {
 	}
 	if !isOneOf(c.EAP.AKAPrime.EmptyKdfInput, "reject", "fallback") {
 		return fmt.Errorf("config: eap.aka_prime.empty_kdf_input must be reject or fallback")
+	}
+	if !isOneOf(c.MPPE.Mapping, "rfc5216", "swapped") {
+		return fmt.Errorf("config: mppe.mapping must be rfc5216 or swapped")
 	}
 	if _, err := c.Conformance.Policy(); err != nil {
 		return err

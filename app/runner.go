@@ -171,10 +171,15 @@ func exchange(ctx context.Context, merged config.Config, tc testcase.Case, peer 
 				userName = peer.Session.OuterIdentity
 			}
 		case radius.CodeAccessAccept:
+			verifyMSK(peer.Session, resp, merged.Radius.Secret, merged.MPPE.Mapping)
 			if logger != nil {
 				logger.LogMPPE(resp.MPPE)
+				logger.LogMSK(peer.Session.Obs)
 			}
-			return evaluateExpect(tc, resp, true)
+			if code, err := evaluateExpect(tc, resp, true); code != 0 || err != nil {
+				return code, err
+			}
+			return evaluateMSK(tc, peer.Session.Obs)
 		case radius.CodeAccessReject:
 			if logger != nil {
 				logger.LogMPPE(resp.MPPE)
