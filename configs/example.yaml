@@ -30,3 +30,8 @@ sim:
 sqn_store:
   mode: "file"
   path: "/tmp/eapaka_test-sqn.json"
+
+conformance:
+  default_must: "fail"
+  default_should: "warn"
+  rules: {}

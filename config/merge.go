@@ -1,6 +1,10 @@
 package config
 
-import "github.com/oyaguma3/eapaka_test/testcase"
+import (
+	"maps"
+
+	"github.com/oyaguma3/eapaka_test/testcase"
+)
 
 // ApplyTestcase overrides config values using a testcase's optional fields.
 func ApplyTestcase(base Config, tc testcase.Case) Config {
@@ -36,6 +40,15 @@ func ApplyTestcase(base Config, tc testcase.Case) Config {
 	}
 	if tc.EAP.AKAPrime.NetName != "" {
 		out.EAP.AKAPrime.NetName = tc.EAP.AKAPrime.NetName
+	}
+
+	if len(tc.Conformance.Rules) > 0 {
+		rules := maps.Clone(base.Conformance.Rules)
+		if rules == nil {
+			rules = make(map[string]string, len(tc.Conformance.Rules))
+		}
+		maps.Copy(rules, tc.Conformance.Rules)
+		out.Conformance.Rules = rules
 	}
 
 	return out

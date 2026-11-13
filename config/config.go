@@ -3,16 +3,19 @@ package config
 import (
 	"fmt"
 	"strings"
+
+	"github.com/oyaguma3/eapaka_test/conformance"
 )
 
 // Config represents the tool configuration loaded from YAML.
 type Config struct {
-	Radius      RadiusConfig   `yaml:"radius"`
-	RadiusAttrs RadiusAttrs    `yaml:"radius_attrs"`
-	EAP         EAPConfig      `yaml:"eap"`
-	Identity    IdentityConfig `yaml:"identity"`
-	SIM         SIMConfig      `yaml:"sim"`
-	SQNStore    SQNStoreConfig `yaml:"sqn_store"`
+	Radius      RadiusConfig      `yaml:"radius"`
+	RadiusAttrs RadiusAttrs       `yaml:"radius_attrs"`
+	EAP         EAPConfig         `yaml:"eap"`
+	Identity    IdentityConfig    `yaml:"identity"`
+	SIM         SIMConfig         `yaml:"sim"`
+	SQNStore    SQNStoreConfig    `yaml:"sqn_store"`
+	Conformance ConformanceConfig `yaml:"conformance"`
 }
 
 type RadiusConfig struct {
@@ -50,6 +53,52 @@ type SIMConfig struct {
 	OPC           string `yaml:"opc"`
 	AMF           string `yaml:"amf"`
 	SQNInitialHex string `yaml:"sqn_initial_hex"`
+}
+
+// ConformanceConfig はサーバ準拠性チェッカのポリシー（設計書 §6.1、§7.1）。
+// 値は fail / warn / off。Rules は規則 ID ごとの上書き。
+type ConformanceConfig struct {
+	DefaultMust   string            `yaml:"default_must"`
+	DefaultShould string            `yaml:"default_should"`
+	Rules         map[string]string `yaml:"rules"`
+}
+
+// Policy は設定を conformance.Policy に変換する。
+func (c ConformanceConfig) Policy() (conformance.Policy, error) {
+	p := conformance.DefaultPolicy()
+	var err error
+	if c.DefaultMust != "" {
+		if p.DefaultMust, err = conformance.ParseAction(c.DefaultMust); err != nil {
+			return p, fmt.Errorf("config: conformance.default_must: %w", err)
+		}
+	}
+	if c.DefaultShould != "" {
+		if p.DefaultShould, err = conformance.ParseAction(c.DefaultShould); err != nil {
+			return p, fmt.Errorf("config: conformance.default_should: %w", err)
+		}
+	}
+	rules, err := ParseConformanceRules(c.Rules)
+	if err != nil {
+		return p, fmt.Errorf("config: conformance.rules: %w", err)
+	}
+	p.Rules = rules
+	return p, nil
+}
+
+// ParseConformanceRules は規則 ID ごとの設定値を検証して変換する。
+func ParseConformanceRules(rules map[string]string) (map[string]conformance.Action, error) {
+	out := make(map[string]conformance.Action, len(rules))
+	for id, v := range rules {
+		if _, ok := conformance.Lookup(id); !ok {
+			return nil, fmt.Errorf("unknown rule %q", id)
+		}
+		a, err := conformance.ParseAction(v)
+		if err != nil {
+			return nil, fmt.Errorf("rule %s: %w", id, err)
+		}
+		out[id] = a
+	}
+	return out, nil
 }
 
 type SQNStoreConfig struct {
@@ -123,6 +172,9 @@ func (c Config) Validate() error {
 	}
 	if !isOneOf(c.EAP.PermanentIDPolicy, "always", "conservative", "deny") {
 		return fmt.Errorf("config: eap.permanent_id_policy must be always, conservative, or deny")
+	}
+	if _, err := c.Conformance.Policy(); err != nil {
+		return err
 	}
 	return nil
 }

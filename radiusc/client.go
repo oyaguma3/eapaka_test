@@ -25,6 +25,14 @@ type Response struct {
 	MPPE   MPPEKeys
 	State  []byte
 	Packet *radius.Packet
+
+	// RequestAuthenticator は、この応答に対応する Access-Request の Request Authenticator。
+	// MPPE 鍵の復号に使う。
+	RequestAuthenticator [16]byte
+	// MessageAuthenticatorPresent と MessageAuthenticatorValid は、応答の
+	// Message-Authenticator の有無と検証結果（RFC 3579 §3.2）。
+	MessageAuthenticatorPresent bool
+	MessageAuthenticatorValid   bool
 }
 
 // Client is a RADIUS client with state retention for EAP sessions.
@@ -87,7 +95,11 @@ func (c *Client) ExchangeEAP(ctx context.Context, userName string, eap []byte, a
 		return nil, err
 	}
 
-	out := &Response{Code: resp.Code, Packet: resp}
+	out := &Response{Code: resp.Code, Packet: resp, RequestAuthenticator: packet.Authenticator}
+	out.MessageAuthenticatorPresent, out.MessageAuthenticatorValid, err = VerifyResponseMessageAuthenticator(resp, packet.Authenticator, []byte(c.Secret))
+	if err != nil {
+		return nil, err
+	}
 	if state, err := rfc2865.State_Lookup(resp); err == nil {
 		out.State = append([]byte(nil), state...)
 		c.State = append([]byte(nil), state...)

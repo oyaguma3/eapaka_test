@@ -108,6 +108,12 @@ func (m *Method) Handle(req eap.Packet, sess *eap.Session) (*eap.Packet, error) 
 		session = &eap.Session{}
 	}
 
+	resp, err := m.dispatch(akaReq, session)
+	session.Obs.Method = m.s.phase.methodState()
+	return resp, err
+}
+
+func (m *Method) dispatch(akaReq *eapaka.Packet, session *eap.Session) (*eap.Packet, error) {
 	switch akaReq.Subtype {
 	case eapaka.SubtypeIdentity:
 		return m.handleIdentity(akaReq, session)

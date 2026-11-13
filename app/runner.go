@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/oyaguma3/eapaka_test/config"
+	"github.com/oyaguma3/eapaka_test/conformance"
 	"github.com/oyaguma3/eapaka_test/eap"
 	"github.com/oyaguma3/eapaka_test/radiusc"
 	"github.com/oyaguma3/eapaka_test/sqnstore"
@@ -35,28 +37,74 @@ func (e *RunError) Unwrap() error {
 	return e.Err
 }
 
+// Result は 1 ケースの実行結果。
+type Result struct {
+	ExitCode   int
+	Err        error
+	Violations []conformance.Violation
+	Obs        eap.Observations
+}
+
 // RunCase executes a single testcase and returns the exit code (0/1/2).
 func RunCase(ctx context.Context, cfg config.Config, tc testcase.Case) (int, error) {
-	merged := config.ApplyTestcase(cfg, tc)
+	res := Run(ctx, cfg, tc)
+	return res.ExitCode, res.Err
+}
 
+// Run executes a single testcase and returns the result including conformance violations.
+// 期待結果と一致していても、fail の違反があれば exit 1 にする（設計書 §6.1）。
+func Run(ctx context.Context, cfg config.Config, tc testcase.Case) Result {
+	merged := config.ApplyTestcase(cfg, tc)
+	policy, err := merged.Conformance.Policy()
+	if err != nil {
+		code, err := wrap(2, err, "conformance policy")
+		return Result{ExitCode: code, Err: err}
+	}
+	rec := conformance.NewRecorder(policy)
+	logger := buildLogger(tc)
+	rec.OnReport = logger.LogViolation
+
+	var res Result
+	peer, err := setupPeer(cfg, tc)
+	if err != nil {
+		res.ExitCode, res.Err = wrap(2, err, "setup")
+	} else {
+		peer.Session.Conformance = rec
+		res.ExitCode, res.Err = exchange(ctx, merged, tc, peer, rec, logger)
+		res.Obs = peer.Session.Obs
+	}
+	res.Violations = rec.Violations()
+	if res.ExitCode == 0 && rec.Failed() {
+		res.ExitCode, res.Err = fail(1, "conformance violations: %s", strings.Join(rec.FailedIDs(), ","))
+	}
+	logger.LogConformanceSummary(res.Violations)
+	return res
+}
+
+// setupPeer は SQN ストアと EAP ピアを用意する。
+func setupPeer(cfg config.Config, tc testcase.Case) (*eap.Peer, error) {
+	merged := config.ApplyTestcase(cfg, tc)
 	store, err := buildStore(merged, tc)
 	if err != nil {
-		return wrap(2, err, "build store")
+		return nil, fmt.Errorf("build store: %w", err)
 	}
 	if tc.SQN.Reset {
 		if err := store.Reset(merged.SIM.IMSI); err != nil {
-			return wrap(2, err, "sqn reset")
+			return nil, fmt.Errorf("sqn reset: %w", err)
 		}
 	}
-
 	peer, err := BuildPeer(cfg, tc, store)
 	if err != nil {
-		return wrap(2, err, "build peer")
+		return nil, fmt.Errorf("build peer: %w", err)
 	}
 	if peer.Session == nil || peer.Session.OuterIdentity == "" {
-		return fail(2, "outer identity is required")
+		return nil, errors.New("outer identity is required")
 	}
+	return peer, nil
+}
 
+// exchange は RADIUS で EAP をやりとりし、最後の応答を期待結果と比べる。
+func exchange(ctx context.Context, merged config.Config, tc testcase.Case, peer *eap.Peer, rec *conformance.Recorder, logger *trace.Logger) (int, error) {
 	attrs := radiusc.Attributes{
 		NASIPAddress:     merged.RadiusAttrs.NASIPAddress,
 		NASIdentifier:    merged.RadiusAttrs.NASIdentifier,
@@ -71,7 +119,6 @@ func RunCase(ctx context.Context, cfg config.Config, tc testcase.Case) (int, err
 		merged.Radius.Retries,
 	)
 
-	logger := buildLogger(tc)
 	userName := peer.Session.OuterIdentity
 	respPkt := &eap.Packet{
 		Code:       eap.CodeResponse,
@@ -80,7 +127,7 @@ func RunCase(ctx context.Context, cfg config.Config, tc testcase.Case) (int, err
 		TypeData:   []byte(userName),
 	}
 
-	for {
+	for round := 1; ; round++ {
 		raw, err := respPkt.Encode()
 		if err != nil {
 			return wrap(2, err, "encode eap response")
@@ -92,11 +139,14 @@ func RunCase(ctx context.Context, cfg config.Config, tc testcase.Case) (int, err
 		if logger != nil {
 			logger.LogRadius(resp.Code, resp.Packet, resp.EAP, peer.Session)
 		}
+		rec.SetRound(round)
+		checkResponse(rec, resp, respPkt.Identifier, peer.Session.Obs.Method)
 
 		switch resp.Code {
 		case radius.CodeAccessChallenge:
 			if len(resp.EAP) == 0 {
-				return fail(2, "missing EAP-Message in Access-Challenge")
+				// R-03b として記録済み。サーバの誤りで続けられないので FAIL にする
+				return fail(1, "missing EAP-Message in Access-Challenge")
 			}
 			reqPkt, err := eap.Parse(resp.EAP)
 			if err != nil {
@@ -104,7 +154,7 @@ func RunCase(ctx context.Context, cfg config.Config, tc testcase.Case) (int, err
 			}
 			nextResp, err := peer.Handle(reqPkt)
 			if err != nil {
-				if _, ok := err.(*eap.MethodMismatchError); ok {
+				if _, ok := errors.AsType[*eap.MethodMismatchError](err); ok {
 					return wrap(1, err, "method mismatch")
 				}
 				return wrap(2, err, "handle EAP request")
@@ -116,7 +166,7 @@ func RunCase(ctx context.Context, cfg config.Config, tc testcase.Case) (int, err
 				logger.LogChallengeResponse(&reqPkt, nextResp, peer.Session)
 			}
 			respPkt = nextResp
-			if peer.Session != nil && peer.Session.OuterIdentity != "" {
+			if peer.Session.OuterIdentity != "" {
 				userName = peer.Session.OuterIdentity
 			}
 		case radius.CodeAccessAccept:
@@ -250,11 +300,11 @@ func buildLogger(tc testcase.Case) *trace.Logger {
 	}
 }
 
-func fail(code int, format string, args ...interface{}) (int, error) {
+func fail(code int, format string, args ...any) (int, error) {
 	return code, &RunError{Code: code, Err: fmt.Errorf("app: "+format, args...)}
 }
 
-func wrap(code int, err error, format string, args ...interface{}) (int, error) {
+func wrap(code int, err error, format string, args ...any) (int, error) {
 	if err == nil {
 		return fail(code, format, args...)
 	}

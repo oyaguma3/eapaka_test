@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/md5"
 	"fmt"
+	"slices"
 
 	"layeh.com/radius"
 	"layeh.com/radius/rfc2869"
@@ -31,4 +32,42 @@ func SetMessageAuthenticator(p *radius.Packet) error {
 	}
 	sum := mac.Sum(nil)
 	return rfc2869.MessageAuthenticator_Set(p, sum)
+}
+
+// VerifyResponseMessageAuthenticator は、Access-Accept/Reject/Challenge の
+// Message-Authenticator を検証する（RFC 3579 §3.2）。Authenticator 欄を対応する
+// Access-Request の Request Authenticator に置き換え、Message-Authenticator を 0 にして
+// HMAC-MD5 を計算する。属性がなければ present が false。複数あれば valid は false。
+func VerifyResponseMessageAuthenticator(resp *radius.Packet, reqAuth [16]byte, secret []byte) (present, valid bool, err error) {
+	if resp == nil {
+		return false, false, fmt.Errorf("radiusc: packet is nil")
+	}
+	idx := -1
+	for i, avp := range resp.Attributes {
+		if avp.Type != rfc2869.MessageAuthenticator_Type {
+			continue
+		}
+		if idx >= 0 {
+			return true, false, nil
+		}
+		idx = i
+	}
+	if idx < 0 {
+		return false, false, nil
+	}
+	received := resp.Attributes[idx].Attribute
+	if len(received) != md5.Size {
+		return true, false, nil
+	}
+	q := *resp
+	q.Authenticator = reqAuth
+	q.Attributes = slices.Clone(resp.Attributes)
+	q.Attributes[idx] = &radius.AVP{Type: rfc2869.MessageAuthenticator_Type, Attribute: make(radius.Attribute, md5.Size)}
+	raw, err := q.MarshalBinary()
+	if err != nil {
+		return true, false, err
+	}
+	mac := hmac.New(md5.New, secret)
+	mac.Write(raw)
+	return true, hmac.Equal(mac.Sum(nil), received), nil
 }

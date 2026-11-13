@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/oyaguma3/eapaka_test/conformance"
 	"github.com/oyaguma3/eapaka_test/eap"
 	"github.com/oyaguma3/eapaka_test/radiusc"
 
@@ -91,6 +92,34 @@ func (l *Logger) LogMPPE(keys radiusc.MPPEKeys) {
 		if keys.RecvKeyPresent {
 			line += fmt.Sprintf(" recv_prefix=%s", maskBytes(keys.RecvKey))
 		}
+	}
+	fmt.Fprintln(l.Out, line)
+}
+
+// LogViolation writes one conformance violation (design doc §8).
+func (l *Logger) LogViolation(v conformance.Violation) {
+	if l == nil || l.Out == nil {
+		return
+	}
+	fmt.Fprintf(l.Out, "violation id=%s level=%s action=%s ref=%q round=%d detail=%q\n",
+		v.Rule.ID, v.Rule.Level, v.Action, v.Rule.Ref, v.Round, v.Detail)
+}
+
+// LogConformanceSummary writes the number of violations at the end of a run.
+func (l *Logger) LogConformanceSummary(vs []conformance.Violation) {
+	if l == nil || l.Out == nil {
+		return
+	}
+	counts := map[conformance.Action]int{}
+	var ids []string
+	for _, v := range vs {
+		counts[v.Action]++
+		ids = append(ids, v.Rule.ID)
+	}
+	line := fmt.Sprintf("conformance violations=%d fail=%d warn=%d",
+		len(vs), counts[conformance.ActionFail], counts[conformance.ActionWarn])
+	if len(ids) > 0 {
+		line += " ids=" + strings.Join(ids, ",")
 	}
 	fmt.Fprintln(l.Out, line)
 }

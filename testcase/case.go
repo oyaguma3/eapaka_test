@@ -3,6 +3,8 @@ package testcase
 import (
 	"fmt"
 	"strings"
+
+	"github.com/oyaguma3/eapaka_test/conformance"
 )
 
 // Case represents a single test case session definition.
@@ -18,6 +20,14 @@ type Case struct {
 	SQN    SQN    `yaml:"sqn"`
 	Expect Expect `yaml:"expect"`
 	Trace  Trace  `yaml:"trace"`
+
+	Conformance Conformance `yaml:"conformance"`
+}
+
+// Conformance はケース単位の準拠性ポリシーの上書き（設計書 §7.2）。
+// 値は fail / warn / off。
+type Conformance struct {
+	Rules map[string]string `yaml:"rules"`
 }
 
 type Radius struct {
@@ -98,6 +108,14 @@ func (c Case) Validate() error {
 	}
 	if c.Expect.MPPE.RecvKey != "" && !hasKeyPrefix(c.Expect.MPPE.RecvKey) {
 		return fmt.Errorf("testcase: expect.mppe.recv_key must start with hex: or b64:")
+	}
+	for id, v := range c.Conformance.Rules {
+		if _, ok := conformance.Lookup(id); !ok {
+			return fmt.Errorf("testcase: conformance.rules: unknown rule %q", id)
+		}
+		if _, err := conformance.ParseAction(v); err != nil {
+			return fmt.Errorf("testcase: conformance.rules: rule %s: %w", id, err)
+		}
 	}
 	return nil
 }
