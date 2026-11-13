@@ -63,6 +63,15 @@ type EAP struct {
 	PermanentIDPolicy                 string   `yaml:"permanent_id_policy"`
 	PermanentIdentityOverride         string   `yaml:"permanent_identity_override"`
 	AKAPrime                          AKAPrime `yaml:"aka_prime"`
+	MethodPreference                  []uint8  `yaml:"method_preference"`
+	Nak                               Nak      `yaml:"nak"`
+	BiddingPolicy                     string   `yaml:"bidding_policy"`
+}
+
+// Nak はケース単位の強制 Nak（X5）。
+type Nak struct {
+	On      []uint8 `yaml:"on"`
+	Propose []uint8 `yaml:"propose"`
 }
 
 type AKAPrime struct {
@@ -77,10 +86,18 @@ type SQN struct {
 }
 
 type Expect struct {
-	Result                  string `yaml:"result"`
-	RejectHintContains      string `yaml:"reject_hint_contains"`
-	RejectHintCheckPresence *bool  `yaml:"reject_hint_check_presence"`
-	MPPE                    MPPE   `yaml:"mppe"`
+	Result                  string  `yaml:"result"`
+	RejectHintContains      string  `yaml:"reject_hint_contains"`
+	RejectHintCheckPresence *bool   `yaml:"reject_hint_check_presence"`
+	MPPE                    MPPE    `yaml:"mppe"`
+	Bidding                 Bidding `yaml:"bidding"`
+}
+
+// Bidding は AT_BIDDING の期待値（RFC 9048 §4）。省略した項目は検査しない。
+type Bidding struct {
+	Present *bool  `yaml:"present"`
+	DBit    *bool  `yaml:"d_bit"`
+	Action  string `yaml:"action"` // reject / ignore
 }
 
 type MPPE struct {
@@ -123,6 +140,17 @@ func (c Case) Validate() error {
 	}
 	if c.EAP.AKAPrime.EmptyKdfInput != "" && !isOneOf(c.EAP.AKAPrime.EmptyKdfInput, "reject", "fallback") {
 		return fmt.Errorf("testcase: eap.aka_prime.empty_kdf_input must be reject or fallback")
+	}
+	for _, m := range append(slices.Clone(c.EAP.MethodPreference), c.EAP.Nak.On...) {
+		if m != 23 && m != 50 {
+			return fmt.Errorf("testcase: eap.method_preference and eap.nak.on accept only 23 and 50, got %d", m)
+		}
+	}
+	if c.EAP.BiddingPolicy != "" && !isOneOf(c.EAP.BiddingPolicy, "reject", "ignore") {
+		return fmt.Errorf("testcase: eap.bidding_policy must be reject or ignore")
+	}
+	if c.Expect.Bidding.Action != "" && !isOneOf(c.Expect.Bidding.Action, "reject", "ignore") {
+		return fmt.Errorf("testcase: expect.bidding.action must be reject or ignore")
 	}
 	if c.Trace.Level != "" && !isOneOf(c.Trace.Level, "normal", "verbose") {
 		return fmt.Errorf("testcase: trace.level must be normal or verbose")

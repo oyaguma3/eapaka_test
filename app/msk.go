@@ -44,6 +44,22 @@ func verifyMSK(sess *eap.Session, resp *radiusc.Response, secret, mapping string
 	}
 }
 
+// evaluateBidding は expect.bidding を判定する（RFC 9048 §4）。
+func evaluateBidding(tc testcase.Case, obs eap.Observations) (int, error) {
+	e := tc.Expect.Bidding
+	b := obs.Bidding
+	if e.Present != nil && *e.Present != (b != nil) {
+		return fail(1, "expect.bidding.present=%t but AT_BIDDING was %s", *e.Present, map[bool]string{true: "received", false: "not received"}[b != nil])
+	}
+	if e.DBit != nil && (b == nil || b.DBit != *e.DBit) {
+		return fail(1, "expect.bidding.d_bit=%t does not match the received AT_BIDDING", *e.DBit)
+	}
+	if e.Action != "" && (b == nil || b.Action != e.Action) {
+		return fail(1, "expect.bidding.action=%s does not match the peer's action", e.Action)
+	}
+	return 0, nil
+}
+
 // evaluateMSK は expect.mppe.verify_msk を判定する。
 func evaluateMSK(tc testcase.Case, obs eap.Observations) (int, error) {
 	if !tc.Expect.MPPE.VerifyMSK {

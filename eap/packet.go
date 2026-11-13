@@ -14,6 +14,7 @@ const (
 
 const (
 	TypeIdentity uint8 = 1
+	TypeNak      uint8 = 3
 	TypeAKA      uint8 = 23
 	TypeAKAPrime uint8 = 50
 )

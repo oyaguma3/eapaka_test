@@ -9,6 +9,7 @@ import (
 
 	"github.com/oyaguma3/eapaka_test/conformance"
 	"github.com/oyaguma3/eapaka_test/eap"
+	"github.com/oyaguma3/eapaka_test/sqnstore"
 
 	eapaka "github.com/oyaguma3/go-eapaka"
 	"github.com/wmnsk/milenage"
@@ -19,8 +20,10 @@ import (
 // 処理の順番は RFC 4187 §9.3・§10.15 と RFC 9048 §3 に合わせる。
 //  1. EAP-AKA' では AT_KDF の交渉と AT_KDF_INPUT の確認
 //  2. AUTN の検証（誤りなら Authentication-Reject）、EAP-AKA' の AMF 分離ビット
-//  3. SQN の範囲（範囲外なら Synchronization-Failure）
+//  3. SQN の範囲（範囲外なら Synchronization-Failure）。保存はまだしない
 //  4. AT_MAC の検証（誤りなら Client-Error）。受信したバイト列のまま検証する
+//  5. EAP-AKA の AT_BIDDING（D=1 なら Authentication-Reject、RFC 9048 §4）
+//  6. SQN の保存
 func (m *Method) handleChallenge(req *eapaka.Packet, raw []byte, sess *eap.Session) (*eap.Packet, error) {
 	rec := sess.Conformance
 	rand, autn, ok := challengeVectors(req)
@@ -63,11 +66,13 @@ func (m *Method) handleChallenge(req *eapaka.Packet, raw []byte, sess *eap.Sessi
 		return m.authenticationReject(req), nil
 	}
 
+	var sqnState *sqnstore.SubscriberState
 	if m.store != nil {
-		accepted, err := m.acceptSQN(sqnBytes)
+		state, accepted, err := m.checkSQN(sqnBytes)
 		if err != nil {
 			return nil, err
 		}
+		sqnState = &state
 		if !accepted {
 			auts, err := m.generateAUTS(rand)
 			if err != nil {
@@ -100,6 +105,25 @@ func (m *Method) handleChallenge(req *eapaka.Packet, raw []byte, sess *eap.Sessi
 	case !macOK:
 		rec.Report("A-18", "AKA-Challenge AT_MAC is invalid")
 		return m.clientError(req)
+	}
+
+	if req.Type == eapaka.TypeAKA {
+		if b := findBidding(req); b != nil {
+			obs := &eap.BiddingObs{Method: req.Type, DBit: b.SupportsAKAPrime(), Action: "ignore"}
+			sess.Obs.Bidding = obs
+			if obs.DBit && m.biddingPolicy == "reject" {
+				// サーバは AKA' に対応しているのに AKA が使われた（bidding down）。
+				// AUTN が不正だったのと同じに扱い、SQN は保存しない
+				obs.Action = "reject"
+				sess.Warnf("AT_BIDDING has the D bit set; rejecting EAP-AKA (bidding_policy=reject)")
+				return m.authenticationReject(req), nil
+			}
+		}
+	}
+	if sqnState != nil {
+		if err := m.saveSQN(*sqnState); err != nil {
+			return nil, err
+		}
 	}
 
 	action := m.faultAt(FaultAtChallengeResponse, sess)

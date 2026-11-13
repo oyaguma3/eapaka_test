@@ -51,6 +51,7 @@ func BuildPeer(cfg config.Config, tc testcase.Case, store sqnstore.Store) (*eap.
 		PermanentIdentityOverride:         permanentOverride,
 		OuterIdentityUpdateOnPermanentReq: outerUpdate,
 		Faults:                            faults,
+		BiddingPolicy:                     merged.EAP.BiddingPolicy,
 	})
 	if err != nil {
 		return nil, err
@@ -71,6 +72,7 @@ func BuildPeer(cfg config.Config, tc testcase.Case, store sqnstore.Store) (*eap.
 		PermanentIdentityOverride:         permanentOverride,
 		OuterIdentityUpdateOnPermanentReq: outerUpdate,
 		Faults:                            faults,
+		BiddingPolicy:                     merged.EAP.BiddingPolicy,
 	})
 	if err != nil {
 		return nil, err
@@ -78,6 +80,9 @@ func BuildPeer(cfg config.Config, tc testcase.Case, store sqnstore.Store) (*eap.
 
 	session := &eap.Session{OuterIdentity: tc.Identity}
 	peer := eap.NewPeer(session, akaMethod, akaPrimeMethod)
+	peer.MethodPreference = merged.EAP.MethodPreference
+	peer.NakOn = merged.EAP.Nak.On
+	peer.NakPropose = merged.EAP.Nak.Propose
 	if merged.EAP.MethodMismatchPolicy != "" {
 		peer.MethodPolicy = eap.MethodMismatchPolicy(merged.EAP.MethodMismatchPolicy)
 	}

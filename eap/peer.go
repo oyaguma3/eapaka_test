@@ -2,6 +2,8 @@ package eap
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/oyaguma3/eapaka_test/conformance"
 )
@@ -64,6 +66,23 @@ type Observations struct {
 	MSKMatch *bool
 	// MSKDetail は、照合しなかった理由か、一致しなかった理由。
 	MSKDetail string
+	// Bidding は受け取った AT_BIDDING の観測結果（RFC 9048 §4）。受け取らなければ nil。
+	Bidding *BiddingObs
+	// Naks は送った EAP-Response/Nak の内容（提示されたタイプと、希望したタイプ）。
+	Naks []NakObs
+}
+
+// BiddingObs は AT_BIDDING の観測結果。
+type BiddingObs struct {
+	Method uint8  // AT_BIDDING を含んでいたパケットの EAP タイプ
+	DBit   bool   // D ビット（サーバが AKA' に対応している）
+	Action string // ピアの動作: "reject"（Authentication-Reject）か "ignore"
+}
+
+// NakObs は送った Nak の記録。
+type NakObs struct {
+	Offered  uint8   // サーバが提示したタイプ
+	Proposed []uint8 // Nak で希望したタイプ（希望がなければ [0]）
 }
 
 // Method handles EAP method-specific requests.
@@ -91,7 +110,15 @@ type Peer struct {
 	ExpectedMethod *uint8
 	Warn           func(error)
 
-	// method は最初に受けたメソッドの要求のタイプ（R-06 の検査用）。
+	// MethodPreference は、使ってよい EAP メソッドを希望順に並べたもの（X5、RFC 3748 §5.3.1）。
+	// 空なら、登録したメソッドすべてを AKA' → AKA の順で希望する。
+	MethodPreference []uint8
+	// NakOn のタイプを提示されたら、NakPropose を希望する Nak を返す（X5 の強制 Nak）。
+	// サーバを別のメソッドに誘導する試験（AT_BIDDING など）に使う。
+	NakOn      []uint8
+	NakPropose []uint8
+
+	// method は最初に応答したメソッドのタイプ（R-06 の検査用）。
 	method uint8
 }
 
@@ -125,6 +152,14 @@ func (p *Peer) Handle(req Packet) (*Packet, error) {
 
 	if req.Type == TypeIdentity {
 		return identityResponse(req.Identifier, sess.OuterIdentity)
+	}
+
+	// Nak はメソッドに応答する前だけ送れる（RFC 3748 §5.3.1）
+	if p.method == 0 {
+		if proposed, ok := p.nakFor(req.Type); ok {
+			sess.Obs.Naks = append(sess.Obs.Naks, NakObs{Offered: req.Type, Proposed: proposed})
+			return &Packet{Code: CodeResponse, Identifier: req.Identifier, Type: TypeNak, TypeData: proposed}, nil
+		}
 	}
 
 	method := p.Methods[req.Type]
@@ -164,4 +199,33 @@ func identityResponse(identifier uint8, identity string) (*Packet, error) {
 		Type:       TypeIdentity,
 		TypeData:   []byte(identity),
 	}, nil
+}
+
+// nakFor は、提示されたタイプ t に Nak で応答するかと、Nak で希望するタイプを返す。
+func (p *Peer) nakFor(t uint8) ([]uint8, bool) {
+	if slices.Contains(p.NakOn, t) {
+		if len(p.NakPropose) == 0 {
+			return []uint8{0}, true
+		}
+		return slices.Clone(p.NakPropose), true
+	}
+	preference := p.MethodPreference
+	if len(preference) == 0 {
+		preference = slices.Sorted(maps.Keys(p.Methods))
+		slices.Reverse(preference) // AKA'（50）を AKA（23）より先に希望する
+	}
+	if p.Methods[t] != nil && slices.Contains(preference, t) {
+		return nil, false
+	}
+	var proposed []uint8
+	for _, m := range preference {
+		if p.Methods[m] != nil && m != t {
+			proposed = append(proposed, m)
+		}
+	}
+	if len(proposed) == 0 {
+		// 希望するタイプがない（RFC 3748 §5.3.1）
+		proposed = []uint8{0}
+	}
+	return proposed, true
 }

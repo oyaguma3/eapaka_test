@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -48,6 +49,10 @@ type Config struct {
 	// IdentityRequest が空でなければ、Challenge の前に AKA-Identity を要求する。
 	// "permanent"、"fullauth"、"any" のいずれか。
 	IdentityRequest string
+	// Bidding は EAP-AKA の Challenge に入れる AT_BIDDING。""（入れない）、"d0"、"d1"（D ビットを立てる）。
+	Bidding string
+	// NakMethods は、ピアの Nak を受けたときに切り替えてよいメソッド。空なら Nak を受けたら失敗にする。
+	NakMethods []uint8
 
 	Faults Faults
 }
@@ -77,6 +82,7 @@ type Faults struct {
 	BadKdfReoffer        bool // A-17: KDF の再提示で元の offer を落とす
 	UnknownNonSkippable  bool // A-16: 未知のスキップ不可属性（タイプ 100）を Challenge に入れる
 	NonZeroReserved      bool // AT_RAND の Reserved を 0 以外にして、受信したバイト列のまま MAC を付ける
+	BiddingInAKAPrime    bool // A-09: EAP-AKA' の Challenge に AT_BIDDING（D=1）を入れる
 	IgnoreResponseResult bool // ピアの応答の RES と MAC を確かめずに成功させる
 }
 
@@ -211,6 +217,16 @@ func (s *Server) handle(req *radius.Packet) reply {
 		return s.failure(nil, pkt.Identifier, nil)
 	}
 	sess.lastID = pkt.Identifier
+	if pkt.Type == eap.TypeNak {
+		// 希望されたメソッドのうち、切り替えてよい最初のものに切り替える（RFC 3748 §5.3.1）
+		for _, m := range pkt.TypeData {
+			if slices.Contains(s.cfg.NakMethods, m) {
+				sess.method = m
+				return s.challenge(sess, state, nil)
+			}
+		}
+		return s.failure(sess, pkt.Identifier, state)
+	}
 	if pkt.Type != eapaka.TypeAKA && pkt.Type != eapaka.TypeAKAPrime {
 		return s.failure(sess, pkt.Identifier, state)
 	}
@@ -386,6 +402,15 @@ func (s *Server) challenge(sess *session, state []byte, kdfAttrs []eapaka.Attrib
 		keys := eapaka.DeriveKeysAKA(sess.identity, ck, ik)
 		sess.kAut, sess.msk = keys.K_aut, keys.MSK
 	}
+	if sess.method == eapaka.TypeAKA && s.cfg.Bidding != "" {
+		b := &eapaka.AtBidding{}
+		b.SetAKAPrime(s.cfg.Bidding == "d1")
+		attrs = append(attrs, b)
+	}
+	if sess.method == eapaka.TypeAKAPrime && f.BiddingInAKAPrime {
+		// go-eapaka は EAP-AKA' の AT_BIDDING を組み立てないので、仮の型で組み立ててから書き換える
+		attrs = append(attrs, &eapaka.GenericAttribute{AttrType: placeholderType, Data: []byte{0x80, 0}})
+	}
 	if f.UnknownNonSkippable {
 		attrs = append(attrs, &eapaka.GenericAttribute{AttrType: 100, Data: []byte{0, 0}})
 	}
@@ -402,6 +427,12 @@ func (s *Server) challenge(sess *session, state []byte, kdfAttrs []eapaka.Attrib
 	b, err := req.Marshal()
 	if err != nil {
 		panic(err)
+	}
+	if sess.method == eapaka.TypeAKAPrime && f.BiddingInAKAPrime {
+		retype(b, placeholderType, eapaka.AT_BIDDING)
+		if err := eapaka.CalculateAndSetMacRaw(b, sess.kAut, nil); err != nil {
+			panic(err)
+		}
 	}
 	if f.NonZeroReserved {
 		// 先頭の属性は AT_RAND。値フィールドの先頭 2 バイトが Reserved
@@ -529,4 +560,16 @@ func addMPPEKeys(p *radius.Packet, msk, secret, reqAuth []byte, f Faults) error 
 		p.Add(rfc2865.VendorSpecific_Type, vsa)
 	}
 	return nil
+}
+
+// placeholderType は、go-eapaka が組み立てない属性を入れるときの仮の型（未割り当てのスキップ可能な型）。
+const placeholderType eapaka.AttributeType = 255
+
+// retype は、パケット b の中の型 from の属性を型 to に書き換える。
+func retype(b []byte, from, to eapaka.AttributeType) {
+	for off := 8; off+2 <= len(b) && b[off+1] != 0; off += int(b[off+1]) * 4 {
+		if eapaka.AttributeType(b[off]) == from {
+			b[off] = byte(to)
+		}
+	}
 }

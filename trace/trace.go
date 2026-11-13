@@ -313,6 +313,8 @@ func eapTypeName(pkt *eap.Packet) string {
 	switch pkt.Type {
 	case eap.TypeIdentity:
 		return "identity"
+	case eap.TypeNak:
+		return fmt.Sprintf("nak%v", pkt.TypeData)
 	case eap.TypeAKA:
 		return "aka"
 	case eap.TypeAKAPrime:

@@ -179,12 +179,18 @@ func exchange(ctx context.Context, merged config.Config, tc testcase.Case, peer 
 			if code, err := evaluateExpect(tc, resp, true); code != 0 || err != nil {
 				return code, err
 			}
-			return evaluateMSK(tc, peer.Session.Obs)
+			if code, err := evaluateMSK(tc, peer.Session.Obs); code != 0 || err != nil {
+				return code, err
+			}
+			return evaluateBidding(tc, peer.Session.Obs)
 		case radius.CodeAccessReject:
 			if logger != nil {
 				logger.LogMPPE(resp.MPPE)
 			}
-			return evaluateExpect(tc, resp, false)
+			if code, err := evaluateExpect(tc, resp, false); code != 0 || err != nil {
+				return code, err
+			}
+			return evaluateBidding(tc, peer.Session.Obs)
 		default:
 			return fail(2, "unexpected RADIUS code %d", resp.Code)
 		}

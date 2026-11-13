@@ -37,6 +37,11 @@ type Options struct {
 
 	// Faults は注入する異常（X4）。
 	Faults []Fault
+
+	// BiddingPolicy は EAP-AKA の Challenge の AT_BIDDING（D=1）の扱い（RFC 9048 §4）。
+	// "reject"（既定。AKA' に対応するピアとして Authentication-Reject を返す）か、
+	// "ignore"（AKA にしか対応しないピアを模擬する）。
+	BiddingPolicy string
 }
 
 // Method implements the EAP method for AKA and AKA'.
@@ -58,6 +63,7 @@ type Method struct {
 	emptyKdfInput string
 	netNameCheck  string
 	faults        []Fault
+	biddingPolicy string
 
 	s akaSession
 }
@@ -98,6 +104,7 @@ func New(opts Options) (*Method, error) {
 		emptyKdfInput: cmp.Or(opts.EmptyKdfInput, "reject"),
 		netNameCheck:  cmp.Or(opts.NetNameCheck, "off"),
 		faults:        slices.Clone(opts.Faults),
+		biddingPolicy: cmp.Or(opts.BiddingPolicy, "reject"),
 	}
 	return method, nil
 }
@@ -129,7 +136,11 @@ func (m *Method) handle(req eap.Packet, raw []byte, sess *eap.Session) (*eap.Pac
 	if req.Type != m.methodType {
 		return nil, fmt.Errorf("aka: method type mismatch %d", req.Type)
 	}
-	akaReq, err := eapaka.Parse(raw)
+	// AKA' の AT_BIDDING も受け付けて解析し、違反（A-09）として記録してから続ける
+	parse := func(b []byte) (*eapaka.Packet, error) {
+		return eapaka.ParseWithOptions(b, eapaka.ParseOptions{AllowBiddingInAKAPrime: true})
+	}
+	akaReq, err := parse(raw)
 	if errors.Is(err, eapaka.ErrEmptyKdfInput) && req.Type == eap.TypeAKAPrime {
 		// RFC 9048 §3.1: 空の AT_KDF_INPUT では認証を続けない
 		sess.Conformance.Report("A-13", "AT_KDF_INPUT has an empty network name")
@@ -139,7 +150,7 @@ func (m *Method) handle(req eap.Packet, raw []byte, sess *eap.Session) (*eap.Pac
 		}
 		// 互換モード: 空の AT_KDF_INPUT を読み飛ばして解析し、設定のネットワーク名で補う。
 		// AT_MAC は受信したバイト列（raw）のまま検証する
-		akaReq, err = eapaka.Parse(maskAttribute(raw, eapaka.AT_KDF_INPUT))
+		akaReq, err = parse(maskAttribute(raw, eapaka.AT_KDF_INPUT))
 	}
 	if err != nil {
 		if errors.Is(err, eapaka.ErrMalformedPacket) || errors.Is(err, eapaka.ErrMalformedAttribute) {
@@ -155,6 +166,12 @@ func (m *Method) handle(req eap.Packet, raw []byte, sess *eap.Session) (*eap.Pac
 			sess.Conformance.Report("A-16", "unknown non-skippable attribute %d in subtype %d", g.AttrType, akaReq.Subtype)
 			return m.clientError(akaReq)
 		}
+	}
+
+	if b := findBidding(akaReq); b != nil && akaReq.Type == eapaka.TypeAKAPrime {
+		// RFC 9048 §4: AT_BIDDING は EAP-AKA' のメッセージには入れない
+		sess.Conformance.Report("A-09", "AT_BIDDING in EAP-AKA' subtype %d", akaReq.Subtype)
+		sess.Obs.Bidding = &eap.BiddingObs{Method: akaReq.Type, DBit: b.SupportsAKAPrime(), Action: "ignore"}
 	}
 
 	switch akaReq.Subtype {
@@ -187,4 +204,13 @@ func maskAttribute(raw []byte, t eapaka.AttributeType) []byte {
 		off += length
 	}
 	return out
+}
+
+func findBidding(p *eapaka.Packet) *eapaka.AtBidding {
+	for _, a := range p.Attributes {
+		if b, ok := a.(*eapaka.AtBidding); ok {
+			return b
+		}
+	}
+	return nil
 }

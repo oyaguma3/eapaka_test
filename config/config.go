@@ -40,7 +40,19 @@ type RadiusAttrs struct {
 	CallingStationID string `yaml:"calling_station_id"`
 }
 
+// NakConfig は強制 Nak（X5）。On のタイプを提示されたら Propose を希望する Nak を返す。
+type NakConfig struct {
+	On      []uint8 `yaml:"on"`
+	Propose []uint8 `yaml:"propose"`
+}
+
 type EAPConfig struct {
+	// MethodPreference は使ってよい EAP メソッドの希望順（X5）。空なら [50, 23]。
+	MethodPreference []uint8   `yaml:"method_preference"`
+	Nak              NakConfig `yaml:"nak"`
+	// BiddingPolicy は EAP-AKA の AT_BIDDING（D=1）の扱い（reject / ignore、RFC 9048 §4）。
+	BiddingPolicy string `yaml:"bidding_policy"`
+
 	MethodMismatchPolicy              string         `yaml:"method_mismatch_policy"`
 	OuterIdentityUpdateOnPermanentReq *bool          `yaml:"outer_identity_update_on_permanent_req"`
 	PermanentIDPolicy                 string         `yaml:"permanent_id_policy"`
@@ -152,6 +164,9 @@ func (c *Config) ApplyDefaults() {
 	if c.EAP.AKAPrime.EmptyKdfInput == "" {
 		c.EAP.AKAPrime.EmptyKdfInput = "reject"
 	}
+	if c.EAP.BiddingPolicy == "" {
+		c.EAP.BiddingPolicy = "reject"
+	}
 	if c.MPPE.Mapping == "" {
 		c.MPPE.Mapping = "rfc5216"
 	}
@@ -200,6 +215,15 @@ func (c Config) Validate() error {
 	if !isOneOf(c.EAP.AKAPrime.EmptyKdfInput, "reject", "fallback") {
 		return fmt.Errorf("config: eap.aka_prime.empty_kdf_input must be reject or fallback")
 	}
+	if !isOneOf(c.EAP.BiddingPolicy, "reject", "ignore") {
+		return fmt.Errorf("config: eap.bidding_policy must be reject or ignore")
+	}
+	if err := validateMethods("config: eap.method_preference", c.EAP.MethodPreference); err != nil {
+		return err
+	}
+	if err := validateMethods("config: eap.nak.on", c.EAP.Nak.On); err != nil {
+		return err
+	}
 	if !isOneOf(c.MPPE.Mapping, "rfc5216", "swapped") {
 		return fmt.Errorf("config: mppe.mapping must be rfc5216 or swapped")
 	}
@@ -236,4 +260,14 @@ func isOneOf(value string, allowed ...string) bool {
 		}
 	}
 	return false
+}
+
+// validateMethods は、EAP-AKA（23）と EAP-AKA'（50）だけが指定されていることを確かめる。
+func validateMethods(label string, methods []uint8) error {
+	for _, m := range methods {
+		if m != 23 && m != 50 {
+			return fmt.Errorf("%s: unsupported EAP type %d (use 23 or 50)", label, m)
+		}
+	}
+	return nil
 }
