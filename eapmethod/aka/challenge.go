@@ -135,17 +135,29 @@ func (m *Method) handleChallenge(req *eapaka.Packet, raw []byte, sess *eap.Sessi
 		res[0] ^= 0xff
 	}
 	mac := &eapaka.AtMac{MAC: make([]byte, 16)}
+	attrs := []eapaka.Attribute{&eapaka.AtRes{Res: res}}
+	// RFC 4187 §6.2: サーバが AT_RESULT_IND を送ってきたときだけ、応答にも入れられる
+	useResultInd := m.resultInd && hasAttr[*eapaka.AtResultInd](req)
+	if useResultInd {
+		attrs = append(attrs, &eapaka.AtResultInd{})
+	}
+	attrs = append(attrs, mac)
 	resp := &eapaka.Packet{
 		Code:       eapaka.CodeResponse,
 		Identifier: req.Identifier,
 		Type:       req.Type,
 		Subtype:    eapaka.SubtypeChallenge,
-		Attributes: []eapaka.Attribute{&eapaka.AtRes{Res: res}, mac},
+		Attributes: attrs,
 	}
 	if err := resp.CalculateAndSetMac(kAut); err != nil {
 		return nil, err
 	}
 	m.s.phase = phaseChallenged
+	if useResultInd {
+		// 双方が AT_RESULT_IND を使ったので、成功通知を受けるまで成功を受け入れない（§6.3.4）
+		m.s.resultInd = true
+		m.s.phase = phaseAwaitingResult
+	}
 	m.s.keys = keys
 	sess.MSK = keys.msk
 	switch action {
@@ -308,4 +320,14 @@ func (m *Method) verifyMacA(rand, sqn, amf, autn []byte) (bool, error) {
 
 func (m *Method) amfBytes() []byte {
 	return []byte{byte(m.amf >> 8), byte(m.amf)}
+}
+
+// hasAttr は、パケットに型 T の属性があるかを返す。
+func hasAttr[T eapaka.Attribute](p *eapaka.Packet) bool {
+	for _, a := range p.Attributes {
+		if _, ok := a.(T); ok {
+			return true
+		}
+	}
+	return false
 }

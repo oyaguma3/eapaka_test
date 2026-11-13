@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"crypto/subtle"
+	"slices"
 
 	"github.com/oyaguma3/eapaka_test/eap"
 	"github.com/oyaguma3/eapaka_test/radiusc"
@@ -56,6 +57,18 @@ func evaluateBidding(tc testcase.Case, obs eap.Observations) (int, error) {
 	}
 	if e.Action != "" && (b == nil || b.Action != e.Action) {
 		return fail(1, "expect.bidding.action=%s does not match the peer's action", e.Action)
+	}
+	return 0, nil
+}
+
+// evaluateNotification は expect.notification を判定する。
+func evaluateNotification(tc testcase.Case, obs eap.Observations) (int, error) {
+	e := tc.Expect.Notification
+	if e.Present != nil && *e.Present != (len(obs.Notifications) > 0) {
+		return fail(1, "expect.notification.present=%t but %d AKA-Notification(s) were received", *e.Present, len(obs.Notifications))
+	}
+	if e.Code != nil && !slices.ContainsFunc(obs.Notifications, func(n eap.NotificationObs) bool { return n.Code == *e.Code }) {
+		return fail(1, "expect.notification.code=%d was not received (received %v)", *e.Code, obs.Notifications)
 	}
 	return 0, nil
 }

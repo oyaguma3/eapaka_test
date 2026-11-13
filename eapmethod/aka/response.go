@@ -22,6 +22,7 @@ func (m *Method) synchronizationFailure(req *eapaka.Packet, auts []byte) (*eap.P
 
 func (m *Method) authenticationReject(req *eapaka.Packet) *eap.Packet {
 	m.s.phase = phaseFailed
+	m.s.peerError = true
 	resp := &eapaka.Packet{
 		Code:       eapaka.CodeResponse,
 		Identifier: req.Identifier,
@@ -51,6 +52,7 @@ func toEAPPacket(pkt *eapaka.Packet) (*eap.Packet, error) {
 // EAP-Response/AKA-Client-Error を返す（RFC 4187 §6.3.1、§10.20）。
 func (m *Method) clientError(req *eapaka.Packet) (*eap.Packet, error) {
 	m.s.phase = phaseFailed
+	m.s.peerError = true
 	return toEAPPacket(&eapaka.Packet{
 		Code:       eapaka.CodeResponse,
 		Identifier: req.Identifier,

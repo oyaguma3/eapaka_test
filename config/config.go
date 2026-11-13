@@ -50,6 +50,8 @@ type EAPConfig struct {
 	// MethodPreference は使ってよい EAP メソッドの希望順（X5）。空なら [50, 23]。
 	MethodPreference []uint8   `yaml:"method_preference"`
 	Nak              NakConfig `yaml:"nak"`
+	// ResultInd は、サーバが AT_RESULT_IND を送ってきたときに応答にも入れるか（既定 true、RFC 4187 §6.2）。
+	ResultInd *bool `yaml:"result_ind"`
 	// BiddingPolicy は EAP-AKA の AT_BIDDING（D=1）の扱い（reject / ignore、RFC 9048 §4）。
 	BiddingPolicy string `yaml:"bidding_policy"`
 

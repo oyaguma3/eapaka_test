@@ -10,6 +10,7 @@ const (
 	phaseIdentity                    // AKA-Identity に応答した
 	phaseKdfNegotiation              // AT_KDF だけの応答を送り、サーバの再提示を待っている
 	phaseSyncFailure                 // Synchronization-Failure を送り、新しい Challenge を待っている
+	phaseAwaitingResult              // AT_RESULT_IND を使って Challenge に応答し、成功通知を待っている
 	phaseChallenged                  // Challenge に AT_RES で応答した（メソッドとしては完了）
 	phaseFailed                      // Authentication-Reject か Client-Error を送った
 )
@@ -25,6 +26,10 @@ type akaSession struct {
 	emptyKdfInputReported bool // 空の AT_KDF_INPUT を A-13 として記録済み
 
 	keys sessionKeys // 直近のフル認証で導出した鍵
+
+	resultInd     bool // AT_RESULT_IND をサーバとピアの両方が使った
+	notifications int  // 受け取った AKA-Notification の数
+	peerError     bool // Client-Error か Authentication-Reject を送った
 }
 
 // sessionKeys はフル認証で導出した鍵。ログやトレースには出さない。

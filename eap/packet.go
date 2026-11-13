@@ -14,6 +14,7 @@ const (
 
 const (
 	TypeIdentity uint8 = 1
+	TypeNotify   uint8 = 2 // RFC 3748 §5.2 Notification
 	TypeNak      uint8 = 3
 	TypeAKA      uint8 = 23
 	TypeAKAPrime uint8 = 50

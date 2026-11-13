@@ -11,9 +11,10 @@ import (
 	"layeh.com/radius"
 )
 
-// checkResponse は RADIUS 応答に対して RADIUS/EAP 層の規則（R-01〜R-05、R-07）を検査する。
-// lastRespID は直前に送った EAP-Response の Identifier、method はその時点のメソッドの進み具合。
-func checkResponse(rec *conformance.Recorder, resp *radiusc.Response, lastRespID uint8, method eap.MethodState) {
+// checkResponse は RADIUS 応答に対して RADIUS/EAP 層の規則（R-01〜R-05、R-07、A-10）を検査する。
+// lastRespID は直前に送った EAP-Response の Identifier、obs はその時点の観測結果。
+func checkResponse(rec *conformance.Recorder, resp *radiusc.Response, lastRespID uint8, obs eap.Observations) {
+	method := obs.Method
 	if resp.MessageAuthenticatorPresent && !resp.MessageAuthenticatorValid {
 		rec.Report("R-01", "%s has an invalid Message-Authenticator", resp.Code)
 	}
@@ -31,13 +32,16 @@ func checkResponse(rec *conformance.Recorder, resp *radiusc.Response, lastRespID
 	case radius.CodeAccessChallenge:
 		if pkt == nil || pkt.Code != eap.CodeRequest {
 			rec.Report("R-03b", "Access-Challenge carries %s instead of an EAP-Request", describeEAP(pkt, resp.EAP))
+		} else if obs.PeerError && pkt.Type != eap.TypeNotify {
+			// RFC 4187 §6.3.1: ピアの Client-Error / Authentication-Reject の後は EAP-Failure を送る
+			rec.Report("A-10", "EAP-Request type %d received after the peer sent Client-Error or Authentication-Reject", pkt.Type)
 		}
 	case radius.CodeAccessAccept:
 		if pkt == nil || pkt.Code != eap.CodeSuccess {
 			rec.Report("R-03a", "Access-Accept carries %s instead of EAP-Success", describeEAP(pkt, resp.EAP))
 		}
 		if method != eap.MethodCompleted {
-			rec.Report("R-05", "Access-Accept received while the EAP method is %s", method)
+			rec.Report("R-05", "Access-Accept received while the EAP method is %s%s", method, prematureReason(obs))
 		}
 		checkMPPESalts(rec, resp.MPPE)
 	case radius.CodeAccessReject:
@@ -84,6 +88,20 @@ func checkMPPESalts(rec *conformance.Recorder, keys radiusc.MPPEKeys) {
 	}
 	if len(salts) == 2 && bytes.Equal(salts[0], salts[1]) {
 		rec.Report("R-07", "MS-MPPE-Send-Key and MS-MPPE-Recv-Key share the Salt %x", salts[0])
+	}
+}
+
+// prematureReason は、成功が早すぎる理由を補足する（RFC 4187 §6.3.4）。
+func prematureReason(obs eap.Observations) string {
+	switch {
+	case obs.FailureNotified():
+		return " (after a failure notification)"
+	case obs.ResultInd && !obs.SuccessNotified():
+		return " (AT_RESULT_IND was used but no success notification was received)"
+	case obs.PeerError:
+		return " (after the peer's Client-Error or Authentication-Reject)"
+	default:
+		return ""
 	}
 }
 

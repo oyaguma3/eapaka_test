@@ -66,6 +66,7 @@ type EAP struct {
 	MethodPreference                  []uint8  `yaml:"method_preference"`
 	Nak                               Nak      `yaml:"nak"`
 	BiddingPolicy                     string   `yaml:"bidding_policy"`
+	ResultInd                         *bool    `yaml:"result_ind"`
 }
 
 // Nak はケース単位の強制 Nak（X5）。
@@ -86,11 +87,20 @@ type SQN struct {
 }
 
 type Expect struct {
-	Result                  string  `yaml:"result"`
-	RejectHintContains      string  `yaml:"reject_hint_contains"`
-	RejectHintCheckPresence *bool   `yaml:"reject_hint_check_presence"`
-	MPPE                    MPPE    `yaml:"mppe"`
-	Bidding                 Bidding `yaml:"bidding"`
+	Result                  string       `yaml:"result"`
+	RejectHintContains      string       `yaml:"reject_hint_contains"`
+	RejectHintCheckPresence *bool        `yaml:"reject_hint_check_presence"`
+	MPPE                    MPPE         `yaml:"mppe"`
+	Bidding                 Bidding      `yaml:"bidding"`
+	Notification            Notification `yaml:"notification"`
+}
+
+// Notification は AKA-Notification の期待値（RFC 4187 §6）。省略した項目は検査しない。
+type Notification struct {
+	// Code は受け取るべき通知のコード値（S・P ビットを含む。例: 32768 は成功、16384 は認証前の失敗）。
+	Code *uint16 `yaml:"code"`
+	// Present は通知を受け取ったかどうか。
+	Present *bool `yaml:"present"`
 }
 
 // Bidding は AT_BIDDING の期待値（RFC 9048 §4）。省略した項目は検査しない。

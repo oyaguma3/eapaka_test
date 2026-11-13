@@ -70,6 +70,30 @@ type Observations struct {
 	Bidding *BiddingObs
 	// Naks は送った EAP-Response/Nak の内容（提示されたタイプと、希望したタイプ）。
 	Naks []NakObs
+	// Notifications は受け取った AKA-Notification（RFC 4187 §6）。
+	Notifications []NotificationObs
+	// ResultInd は、AT_RESULT_IND をサーバとピアの両方が使った（成功通知を待つ）こと（RFC 4187 §6.2）。
+	ResultInd bool
+	// PeerError は、ピアが Client-Error か Authentication-Reject を送ったこと（規則 A-10 の判定に使う）。
+	PeerError bool
+	// EAPNotifications は、RFC 3748 の Notification（Type 2）で受け取った表示用のメッセージ。
+	EAPNotifications []string
+}
+
+// NotificationObs は AKA-Notification の記録。Code は S・P ビットを含む 16 bit の値。
+type NotificationObs struct {
+	Code uint16
+	S, P bool
+}
+
+// SuccessNotified は成功通知（32768）を受け取ったかを返す。
+func (o Observations) SuccessNotified() bool {
+	return slices.ContainsFunc(o.Notifications, func(n NotificationObs) bool { return n.Code == 32768 })
+}
+
+// FailureNotified は失敗通知（S=0）を受け取ったかを返す。
+func (o Observations) FailureNotified() bool {
+	return slices.ContainsFunc(o.Notifications, func(n NotificationObs) bool { return !n.S })
 }
 
 // BiddingObs は AT_BIDDING の観測結果。
@@ -152,6 +176,12 @@ func (p *Peer) Handle(req Packet) (*Packet, error) {
 
 	if req.Type == TypeIdentity {
 		return identityResponse(req.Identifier, sess.OuterIdentity)
+	}
+	if req.Type == TypeNotify {
+		// RFC 3748 §5.2: Type-Data が空の Notification で応答する（Nak で応答してはならない）
+		sess.Obs.EAPNotifications = append(sess.Obs.EAPNotifications, string(req.TypeData))
+		sess.Warnf("EAP Notification received: %q", req.TypeData)
+		return &Packet{Code: CodeResponse, Identifier: req.Identifier, Type: TypeNotify}, nil
 	}
 
 	// Nak はメソッドに応答する前だけ送れる（RFC 3748 §5.3.1）

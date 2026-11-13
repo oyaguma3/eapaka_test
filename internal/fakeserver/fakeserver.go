@@ -53,6 +53,12 @@ type Config struct {
 	Bidding string
 	// NakMethods は、ピアの Nak を受けたときに切り替えてよいメソッド。空なら Nak を受けたら失敗にする。
 	NakMethods []uint8
+	// ResultInd が true なら Challenge に AT_RESULT_IND を入れる。ピアも入れてきたら、成功の前に成功通知を送る。
+	ResultInd bool
+	// FailureNotification が true なら、ピアの応答が不正なときに認証前の失敗通知（16384）を送ってから拒否する。
+	FailureNotification bool
+	// EAPNotification が空でなければ、最初の要求の前に RFC 3748 の Notification（Type 2）を送る。
+	EAPNotification string
 
 	Faults Faults
 }
@@ -75,15 +81,23 @@ type Faults struct {
 	MPPESwapped                 bool // X2: Send-Key と Recv-Key に入れる MSK の半分を入れ替える
 
 	// EAP-AKA/AKA' 層
-	WrongAUTN            bool // AUTN の MAC-A を壊す（ピアは Authentication-Reject を返すべき）
-	ClearSeparationBit   bool // A-12: AMF の分離ビットを 0 にする
-	EmptyKdfInput        bool // A-13: AT_KDF_INPUT のネットワーク名を空にする
-	CorruptRequestMAC    bool // A-18: Challenge の AT_MAC を壊す
-	BadKdfReoffer        bool // A-17: KDF の再提示で元の offer を落とす
-	UnknownNonSkippable  bool // A-16: 未知のスキップ不可属性（タイプ 100）を Challenge に入れる
-	NonZeroReserved      bool // AT_RAND の Reserved を 0 以外にして、受信したバイト列のまま MAC を付ける
-	BiddingInAKAPrime    bool // A-09: EAP-AKA' の Challenge に AT_BIDDING（D=1）を入れる
-	IgnoreResponseResult bool // ピアの応答の RES と MAC を確かめずに成功させる
+	WrongAUTN           bool // AUTN の MAC-A を壊す（ピアは Authentication-Reject を返すべき）
+	ClearSeparationBit  bool // A-12: AMF の分離ビットを 0 にする
+	EmptyKdfInput       bool // A-13: AT_KDF_INPUT のネットワーク名を空にする
+	CorruptRequestMAC   bool // A-18: Challenge の AT_MAC を壊す
+	BadKdfReoffer       bool // A-17: KDF の再提示で元の offer を落とす
+	UnknownNonSkippable bool // A-16: 未知のスキップ不可属性（タイプ 100）を Challenge に入れる
+	NonZeroReserved     bool // AT_RAND の Reserved を 0 以外にして、受信したバイト列のまま MAC を付ける
+	BiddingInAKAPrime   bool // A-09: EAP-AKA' の Challenge に AT_BIDDING（D=1）を入れる
+
+	// AKA-Notification（RFC 4187 §6）
+	NotificationPAndS                bool // A-08: 失敗通知の P と S を両方立てる
+	SuccessNotifyWithoutResultInd    bool // A-08: AT_RESULT_IND を使っていなくても成功通知を送る
+	TwoNotifications                 bool // A-08: 成功通知を 2 回送る
+	AcceptWithoutSuccessNotification bool // R-05: AT_RESULT_IND を使っていても成功通知を送らずに Accept を返す
+	AcceptAfterFailureNotification   bool // R-05: 失敗通知の後に Accept を返す
+	RequestAfterPeerError            bool // A-10: ピアの Client-Error / Authentication-Reject の後に Challenge を送る
+	IgnoreResponseResult             bool // ピアの応答の RES と MAC を確かめずに成功させる
 }
 
 // Event は疑似サーバが受け取った EAP-Response の記録。
@@ -114,6 +128,10 @@ type session struct {
 	xres     []byte
 	kdfOffer []uint16
 	switched bool
+
+	stage     string // "eap-notify"、"success-notify"、"failure-notify"（応答を待っている通知）
+	notifies  int    // 送った成功通知の数
+	peerError bool   // ピアの Client-Error / Authentication-Reject を受けた
 }
 
 // Start は疑似サーバを 127.0.0.1 の空いているポートで起動する。
@@ -217,6 +235,10 @@ func (s *Server) handle(req *radius.Packet) reply {
 		return s.failure(nil, pkt.Identifier, nil)
 	}
 	sess.lastID = pkt.Identifier
+	if pkt.Type == eap.TypeNotify && sess.stage == "eap-notify" {
+		sess.stage = ""
+		return s.firstRequest(sess, state)
+	}
 	if pkt.Type == eap.TypeNak {
 		// 希望されたメソッドのうち、切り替えてよい最初のものに切り替える（RFC 3748 §5.3.1）
 		for _, m := range pkt.TypeData {
@@ -244,8 +266,27 @@ func (s *Server) handle(req *radius.Packet) reply {
 		return s.challenge(sess, state, nil)
 	case eapaka.SubtypeChallenge:
 		return s.challengeResponse(sess, state, raw, akaPkt)
+	case eapaka.SubtypeNotification:
+		switch sess.stage {
+		case "success-notify":
+			sess.notifies++
+			if s.cfg.Faults.TwoNotifications && sess.notifies == 1 {
+				return s.notification(sess, state, eapaka.NotificationSuccess, true)
+			}
+			return s.success(sess, state)
+		case "failure-notify":
+			if s.cfg.Faults.AcceptAfterFailureNotification {
+				return s.success(sess, state)
+			}
+		}
+		return s.failure(sess, pkt.Identifier, state)
 	default:
 		// Authentication-Reject、Client-Error、Synchronization-Failure など
+		if s.cfg.Faults.RequestAfterPeerError && !sess.peerError &&
+			(akaPkt.Subtype == eapaka.SubtypeClientError || akaPkt.Subtype == eapaka.SubtypeAuthenticationReject) {
+			sess.peerError = true
+			return s.challenge(sess, state, nil)
+		}
 		return s.failure(sess, pkt.Identifier, state)
 	}
 }
@@ -267,6 +308,16 @@ func (s *Server) startSession(pkt eap.Packet) reply {
 	if s.cfg.Faults.EarlyAccept {
 		return reply{code: radius.CodeAccessAccept, eap: s.result(eap.CodeSuccess, sess.lastID)}
 	}
+	if s.cfg.EAPNotification != "" {
+		sess.stage = "eap-notify"
+		b, _ := eap.Packet{Code: eap.CodeRequest, Identifier: sess.lastID + 1, Type: eap.TypeNotify, TypeData: []byte(s.cfg.EAPNotification)}.Encode()
+		return reply{code: radius.CodeAccessChallenge, eap: b, state: state}
+	}
+	return s.firstRequest(sess, state)
+}
+
+// firstRequest は、AKA-Identity の要求か、最初の Challenge を送る。
+func (s *Server) firstRequest(sess *session, state []byte) reply {
 	if s.cfg.IdentityRequest != "" {
 		var attr eapaka.Attribute
 		switch s.cfg.IdentityRequest {
@@ -320,6 +371,15 @@ func (s *Server) challengeResponse(sess *session, state, raw []byte, resp *eapak
 		ok = err == nil && macOK && bytes.Equal(findRes(resp), sess.xres)
 	}
 	if !ok {
+		if s.cfg.FailureNotification {
+			// 認証前の失敗通知（P=1、AT_MAC なし。RFC 4187 §6.3.1）
+			sess.stage = "failure-notify"
+			code := eapaka.NotificationGeneralFailure
+			if s.cfg.Faults.NotificationPAndS {
+				code |= 0x8000
+			}
+			return s.notification(sess, state, code, false)
+		}
 		return s.failure(sess, sess.lastID, state)
 	}
 	if s.cfg.Faults.SwitchMethod {
@@ -331,7 +391,39 @@ func (s *Server) challengeResponse(sess *session, state, raw []byte, resp *eapak
 		}
 		return s.challenge(sess, state, nil)
 	}
+	// 双方が AT_RESULT_IND を使ったら、成功の前に成功通知を送る（RFC 4187 §6.2）
+	useResultInd := s.cfg.ResultInd && slices.ContainsFunc(resp.Attributes, func(a eapaka.Attribute) bool {
+		_, ok := a.(*eapaka.AtResultInd)
+		return ok
+	})
+	f := s.cfg.Faults
+	if (useResultInd && !f.AcceptWithoutSuccessNotification) || f.SuccessNotifyWithoutResultInd {
+		sess.stage = "success-notify"
+		return s.notification(sess, state, eapaka.NotificationSuccess, true)
+	}
 	return s.success(sess, state)
+}
+
+// notification は AKA-Notification を送る。withMAC なら AT_MAC を付ける（認証後の通知、P=0）。
+func (s *Server) notification(sess *session, state []byte, code uint16, withMAC bool) reply {
+	attrs := []eapaka.Attribute{eapaka.NewNotification(code)}
+	if withMAC {
+		attrs = append(attrs, &eapaka.AtMac{MAC: make([]byte, 16)})
+	}
+	req := &eapaka.Packet{
+		Code: eapaka.CodeRequest, Identifier: sess.lastID + 1, Type: sess.method,
+		Subtype: eapaka.SubtypeNotification, Attributes: attrs,
+	}
+	if withMAC {
+		if err := req.CalculateAndSetMac(sess.kAut); err != nil {
+			panic(err)
+		}
+	}
+	b, err := req.Marshal()
+	if err != nil {
+		panic(err)
+	}
+	return reply{code: radius.CodeAccessChallenge, eap: b, state: state}
 }
 
 func findRes(p *eapaka.Packet) []byte {
@@ -410,6 +502,9 @@ func (s *Server) challenge(sess *session, state []byte, kdfAttrs []eapaka.Attrib
 	if sess.method == eapaka.TypeAKAPrime && f.BiddingInAKAPrime {
 		// go-eapaka は EAP-AKA' の AT_BIDDING を組み立てないので、仮の型で組み立ててから書き換える
 		attrs = append(attrs, &eapaka.GenericAttribute{AttrType: placeholderType, Data: []byte{0x80, 0}})
+	}
+	if s.cfg.ResultInd {
+		attrs = append(attrs, &eapaka.AtResultInd{})
 	}
 	if f.UnknownNonSkippable {
 		attrs = append(attrs, &eapaka.GenericAttribute{AttrType: 100, Data: []byte{0, 0}})

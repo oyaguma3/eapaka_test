@@ -38,6 +38,10 @@ type Options struct {
 	// Faults は注入する異常（X4）。
 	Faults []Fault
 
+	// ResultInd は、サーバが AT_RESULT_IND を送ってきたときに応答にも入れるか（RFC 4187 §6.2）。
+	// nil なら入れる。
+	ResultInd *bool
+
 	// BiddingPolicy は EAP-AKA の Challenge の AT_BIDDING（D=1）の扱い（RFC 9048 §4）。
 	// "reject"（既定。AKA' に対応するピアとして Authentication-Reject を返す）か、
 	// "ignore"（AKA にしか対応しないピアを模擬する）。
@@ -64,6 +68,7 @@ type Method struct {
 	netNameCheck  string
 	faults        []Fault
 	biddingPolicy string
+	resultInd     bool
 
 	s akaSession
 }
@@ -105,6 +110,7 @@ func New(opts Options) (*Method, error) {
 		netNameCheck:  cmp.Or(opts.NetNameCheck, "off"),
 		faults:        slices.Clone(opts.Faults),
 		biddingPolicy: cmp.Or(opts.BiddingPolicy, "reject"),
+		resultInd:     opts.ResultInd == nil || *opts.ResultInd,
 	}
 	return method, nil
 }
@@ -129,6 +135,8 @@ func (m *Method) Handle(req eap.Packet, sess *eap.Session) (*eap.Packet, error) 
 	}
 	resp, err := m.handle(req, raw, session)
 	session.Obs.Method = m.s.phase.methodState()
+	session.Obs.ResultInd = m.s.resultInd
+	session.Obs.PeerError = session.Obs.PeerError || m.s.peerError
 	return resp, err
 }
 
@@ -179,8 +187,10 @@ func (m *Method) handle(req eap.Packet, raw []byte, sess *eap.Session) (*eap.Pac
 		return m.handleIdentity(akaReq, sess)
 	case eapaka.SubtypeChallenge:
 		return m.handleChallenge(akaReq, raw, sess)
-	case eapaka.SubtypeNotification, eapaka.SubtypeReauthentication:
-		// ツールがまだ対応していない（Phase 3・5 で対応する）
+	case eapaka.SubtypeNotification:
+		return m.handleNotification(akaReq, raw, sess)
+	case eapaka.SubtypeReauthentication:
+		// ツールがまだ対応していない（Phase 5 で対応する）
 		return nil, fmt.Errorf("aka: unsupported subtype %d", akaReq.Subtype)
 	default:
 		// 未定義の Subtype や、ピアからしか送らない Subtype（Authentication-Reject など）

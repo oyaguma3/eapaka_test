@@ -52,6 +52,7 @@ func BuildPeer(cfg config.Config, tc testcase.Case, store sqnstore.Store) (*eap.
 		OuterIdentityUpdateOnPermanentReq: outerUpdate,
 		Faults:                            faults,
 		BiddingPolicy:                     merged.EAP.BiddingPolicy,
+		ResultInd:                         merged.EAP.ResultInd,
 	})
 	if err != nil {
 		return nil, err
@@ -73,6 +74,7 @@ func BuildPeer(cfg config.Config, tc testcase.Case, store sqnstore.Store) (*eap.
 		OuterIdentityUpdateOnPermanentReq: outerUpdate,
 		Faults:                            faults,
 		BiddingPolicy:                     merged.EAP.BiddingPolicy,
+		ResultInd:                         merged.EAP.ResultInd,
 	})
 	if err != nil {
 		return nil, err

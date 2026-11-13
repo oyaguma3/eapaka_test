@@ -141,7 +141,7 @@ func exchange(ctx context.Context, merged config.Config, tc testcase.Case, peer 
 			logger.LogRadius(resp.Code, resp.Packet, resp.EAP, peer.Session)
 		}
 		rec.SetRound(round)
-		checkResponse(rec, resp, respPkt.Identifier, peer.Session.Obs.Method)
+		checkResponse(rec, resp, respPkt.Identifier, peer.Session.Obs)
 
 		switch resp.Code {
 		case radius.CodeAccessChallenge:
@@ -182,7 +182,10 @@ func exchange(ctx context.Context, merged config.Config, tc testcase.Case, peer 
 			if code, err := evaluateMSK(tc, peer.Session.Obs); code != 0 || err != nil {
 				return code, err
 			}
-			return evaluateBidding(tc, peer.Session.Obs)
+			if code, err := evaluateBidding(tc, peer.Session.Obs); code != 0 || err != nil {
+				return code, err
+			}
+			return evaluateNotification(tc, peer.Session.Obs)
 		case radius.CodeAccessReject:
 			if logger != nil {
 				logger.LogMPPE(resp.MPPE)
@@ -190,7 +193,10 @@ func exchange(ctx context.Context, merged config.Config, tc testcase.Case, peer 
 			if code, err := evaluateExpect(tc, resp, false); code != 0 || err != nil {
 				return code, err
 			}
-			return evaluateBidding(tc, peer.Session.Obs)
+			if code, err := evaluateBidding(tc, peer.Session.Obs); code != 0 || err != nil {
+				return code, err
+			}
+			return evaluateNotification(tc, peer.Session.Obs)
 		default:
 			return fail(2, "unexpected RADIUS code %d", resp.Code)
 		}
