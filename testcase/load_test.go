@@ -64,3 +64,39 @@ expect:
 		t.Fatalf("expected reject_hint_check_presence=false")
 	}
 }
+
+func TestValidateFaults(t *testing.T) {
+	base := Case{Version: 1, Identity: "user", Expect: Expect{Result: "reject"}}
+	tests := []struct {
+		fault   Fault
+		wantErr bool
+	}{
+		{Fault{At: "challenge_response", Action: "corrupt_mac"}, false},
+		{Fault{At: "identity_response", Action: "client_error"}, false},
+		{Fault{At: "identity_response", Action: "corrupt_mac"}, true},
+		{Fault{At: "reauth_response", Action: "corrupt_mac"}, true},
+	}
+	for _, tt := range tests {
+		c := base
+		c.Faults = []Fault{tt.fault}
+		if err := c.Validate(); (err != nil) != tt.wantErr {
+			t.Errorf("Validate(%+v) error = %v, wantErr %t", tt.fault, err, tt.wantErr)
+		}
+	}
+}
+
+func TestValidateConformanceRules(t *testing.T) {
+	c := Case{Version: 1, Identity: "user", Expect: Expect{Result: "accept"}}
+	c.Conformance.Rules = map[string]string{"R-02": "fail"}
+	if err := c.Validate(); err != nil {
+		t.Errorf("valid rules rejected: %v", err)
+	}
+	c.Conformance.Rules = map[string]string{"R-99": "fail"}
+	if err := c.Validate(); err == nil {
+		t.Error("unknown rule accepted")
+	}
+	c.Conformance.Rules = map[string]string{"R-02": "error"}
+	if err := c.Validate(); err == nil {
+		t.Error("unknown action accepted")
+	}
+}

@@ -2,6 +2,7 @@ package testcase
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/oyaguma3/eapaka_test/conformance"
@@ -22,6 +23,19 @@ type Case struct {
 	Trace  Trace  `yaml:"trace"`
 
 	Conformance Conformance `yaml:"conformance"`
+	Faults      []Fault     `yaml:"fault"`
+}
+
+// Fault はピアに注入する異常（設計書 §6.4、X4）。
+type Fault struct {
+	At     string `yaml:"at"`
+	Action string `yaml:"action"`
+}
+
+// faultActions は注入位置ごとに使える動作。
+var faultActions = map[string][]string{
+	"identity_response":  {"client_error", "auth_reject"},
+	"challenge_response": {"corrupt_mac", "wrong_res", "client_error", "auth_reject"},
 }
 
 // Conformance はケース単位の準拠性ポリシーの上書き（設計書 §7.2）。
@@ -116,6 +130,15 @@ func (c Case) Validate() error {
 	}
 	if c.Expect.MPPE.RecvKey != "" && !hasKeyPrefix(c.Expect.MPPE.RecvKey) {
 		return fmt.Errorf("testcase: expect.mppe.recv_key must start with hex: or b64:")
+	}
+	for i, f := range c.Faults {
+		actions, ok := faultActions[f.At]
+		if !ok {
+			return fmt.Errorf("testcase: fault[%d].at must be identity_response or challenge_response", i)
+		}
+		if !slices.Contains(actions, f.Action) {
+			return fmt.Errorf("testcase: fault[%d].action %q cannot be used at %s (allowed: %s)", i, f.Action, f.At, strings.Join(actions, ", "))
+		}
 	}
 	for id, v := range c.Conformance.Rules {
 		if _, ok := conformance.Lookup(id); !ok {

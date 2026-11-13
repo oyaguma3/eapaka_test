@@ -11,6 +11,9 @@ import (
 func (m *Method) handleIdentity(req *eapaka.Packet, sess *eap.Session) (*eap.Packet, error) {
 	m.s.identityRounds++
 	m.s.phase = phaseIdentity
+	if resp, ok, err := m.replaceByFault(m.faultAt(FaultAtIdentityResponse, sess), req); ok {
+		return resp, err
+	}
 	if hasPermanentIDReq(req) {
 		permanent, ok, err := m.selectPermanentIdentity(sess)
 		if err != nil {

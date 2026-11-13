@@ -101,20 +101,34 @@ func (m *Method) handleChallenge(req *eapaka.Packet, raw []byte, sess *eap.Sessi
 		return m.clientError(req)
 	}
 
+	action := m.faultAt(FaultAtChallengeResponse, sess)
+	if resp, ok, err := m.replaceByFault(action, req); ok {
+		return resp, err
+	}
+	if action == FaultWrongRES {
+		res = bytes.Clone(res)
+		res[0] ^= 0xff
+	}
+	mac := &eapaka.AtMac{MAC: make([]byte, 16)}
 	resp := &eapaka.Packet{
 		Code:       eapaka.CodeResponse,
 		Identifier: req.Identifier,
 		Type:       req.Type,
 		Subtype:    eapaka.SubtypeChallenge,
-		Attributes: []eapaka.Attribute{
-			&eapaka.AtRes{Res: res},
-			&eapaka.AtMac{MAC: make([]byte, 16)},
-		},
+		Attributes: []eapaka.Attribute{&eapaka.AtRes{Res: res}, mac},
 	}
 	if err := resp.CalculateAndSetMac(kAut); err != nil {
 		return nil, err
 	}
 	m.s.phase = phaseChallenged
+	switch action {
+	case FaultCorruptMAC:
+		mac.MAC[len(mac.MAC)-1] ^= 0xff
+		fallthrough
+	case FaultWrongRES:
+		// 応答が無効なので、サーバは成功を返してはならない（返せば R-05 で検出する）
+		m.s.phase = phaseFailed
+	}
 	return toEAPPacket(resp)
 }
 

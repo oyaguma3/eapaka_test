@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/oyaguma3/eapaka_test/eap"
 	"github.com/oyaguma3/eapaka_test/sqnstore"
@@ -33,6 +34,9 @@ type Options struct {
 	EmptyKdfInput string
 	// NetNameCheck は AT_KDF_INPUT と NetName の照合。"off"（既定）、"warn"、"reject"。
 	NetNameCheck string
+
+	// Faults は注入する異常（X4）。
+	Faults []Fault
 }
 
 // Method implements the EAP method for AKA and AKA'.
@@ -53,6 +57,7 @@ type Method struct {
 
 	emptyKdfInput string
 	netNameCheck  string
+	faults        []Fault
 
 	s akaSession
 }
@@ -92,6 +97,7 @@ func New(opts Options) (*Method, error) {
 
 		emptyKdfInput: cmp.Or(opts.EmptyKdfInput, "reject"),
 		netNameCheck:  cmp.Or(opts.NetNameCheck, "off"),
+		faults:        slices.Clone(opts.Faults),
 	}
 	return method, nil
 }

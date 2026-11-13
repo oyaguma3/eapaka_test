@@ -33,6 +33,10 @@ func BuildPeer(cfg config.Config, tc testcase.Case, store sqnstore.Store) (*eap.
 	permanentPolicy := merged.EAP.PermanentIDPolicy
 	outerUpdate := merged.EAP.OuterIdentityUpdateOnPermanentReq
 	permanentOverride := tc.EAP.PermanentIdentityOverride
+	var faults []aka.Fault
+	for _, f := range tc.Faults {
+		faults = append(faults, aka.Fault{At: f.At, Action: f.Action})
+	}
 
 	akaMethod, err := aka.New(aka.Options{
 		MethodType:                        eap.TypeAKA,
@@ -46,6 +50,7 @@ func BuildPeer(cfg config.Config, tc testcase.Case, store sqnstore.Store) (*eap.
 		PermanentIDPolicy:                 permanentPolicy,
 		PermanentIdentityOverride:         permanentOverride,
 		OuterIdentityUpdateOnPermanentReq: outerUpdate,
+		Faults:                            faults,
 	})
 	if err != nil {
 		return nil, err
@@ -65,6 +70,7 @@ func BuildPeer(cfg config.Config, tc testcase.Case, store sqnstore.Store) (*eap.
 		PermanentIDPolicy:                 permanentPolicy,
 		PermanentIdentityOverride:         permanentOverride,
 		OuterIdentityUpdateOnPermanentReq: outerUpdate,
+		Faults:                            faults,
 	})
 	if err != nil {
 		return nil, err
