@@ -51,7 +51,9 @@ eapaka_test 側の設定は `configs/hostapd.yaml` です。
 - **仮名と再認証 ID**：Challenge の AT_ENCR_DATA で、仮名と再認証 ID を発行します（`eap_sim_id` の既定値）。
 - **EAP-AKA の Challenge**：AT_BIDDING が入ります。ユーザーの EAP メソッドの一覧で AKA' が AKA より先にあれば、D ビットが立ちます。`eap_user` では AKA' の永続 ID（先頭 6）に `AKA',AKA` を許しています。そのため、ピアが Nak で AKA を希望すると、D ビット付きの AKA の Challenge になります（bidding の試験）。
 - **EAP-AKA' のネットワーク名**：hostapd は "WLAN" に固定しています。
-- **再認証**：再認証 ID も永続 ID ごとに 1 つで、フル認証のたびに置き換わります。再認証のケースは番号付きの名前（`reauth_1_issue` → `reauth_5_counter_too_small`）の順に流してください。使用済みの再認証 ID を受けると、hostapd は AT_FULLAUTH_ID_REQ を送ってフル認証にします。
+- **メソッドをまたいだ再認証**：`eap_user` で AKA の再認証 ID（先頭 4）に `AKA,AKA'` を許しています。`reauth_6_cross_method` では、Nak で AKA' に切り替えたときに hostapd が再認証をせず、フル認証を行うことを確かめます（RFC 9048 §7）。
+- **EAP-Key-Name**：hostapd は Access-Accept に Session-Id を入れて返します。`configs/hostapd.yaml` で要求し（`eap_key_name: true`）、ピアの Session-Id と照合しています。
+- **再認証**：再認証 ID も永続 ID ごとに 1 つで、フル認証のたびに置き換わります。再認証のケースは番号付きの名前（`reauth_1_issue` → `reauth_6_cross_method`）の順に流してください。使用済みの再認証 ID を受けると、hostapd は AT_FULLAUTH_ID_REQ を送ってフル認証にします。
 - **仮名は永続 ID ごとに 1 つ**：同じ IMSI でフル認証をするたびに、新しく発行した仮名で置き換わります。`pseudonym_issue` で保存した仮名を `pseudonym_use` で使うので、ケースはファイル名の順（`pseudonym_issue` → `pseudonym_use`）に、間に同じ IMSI の認証を挟まずに流してください。hostapd を再起動しても仮名は消えます。
 - **ピアの AT_MAC が不正なとき**：EAP-Failure の前に、認証前の失敗通知（16384）を送ります（`notification_failure_before_auth`）。
 - **AT_RESULT_IND**：`eap_sim_aka_result_ind=1` で有効にしています。ピアも使えば、EAP-Success の前に成功通知（32768）を送ります。

@@ -97,6 +97,7 @@ identity_store:
   - `nas_identifier`
   - `called_station_id`（形式は後述）
   - `calling_station_id`
+  - `eap_key_name`: `true` なら、Access-Request に NUL 1 文字の EAP-Key-Name（属性 102）を入れて、Access-Accept で Session-Id を求める（RFC 7268 §2.2）。返ってきた値はピアの Session-Id と照合する
 
 - `eap.*`: EAP ポリシー
   - `method_mismatch_policy`: `strict|warn|allow`
@@ -180,6 +181,7 @@ expect:
   - `identity_requests`: 受け取る AKA-Identity の要求の種類の並び（例: `[any, permanent]`。`[]` は AKA-Identity がないこと）
   - `checkcode`: AT_CHECKCODE の検証結果（`verified|absent`）
   - `auth_type`: 行われた認証の種類（`full|reauth`）
+  - `key_name`: Access-Accept の EAP-Key-Name の照合結果（`match|undefined|absent`。undefined は、EAP-AKA の再認証のように Session-Id が定義されていない場合）
   - `counter_too_small_sent`: ピアが AT_COUNTER_TOO_SMALL を送ったか
   - `notification`: AKA-Notification の期待値。`code`（S・P ビットを含むコード値。32768 は成功、16384 は認証前の失敗）、`present`（受け取ったか）
   - `bidding`: AT_BIDDING の期待値。`present`（受け取ったか）、`d_bit`、`action`（ピアの動作 `reject|ignore`）。省略した項目は検査しない
@@ -283,6 +285,9 @@ sudo usermod -aG wireshark $USER
 | R-04 | EAP-Success/Failure の Identifier が直前の EAP-Response と一致する | RFC 3748 §4.2 | MUST |
 | R-05 | メソッドの完了前や失敗後に成功を通知しない | RFC 3748 §4.2、RFC 4187 §6.2 | MUST |
 | R-06 | メソッドの途中で EAP タイプを切り替えない | RFC 3748 §2.1 | MUST |
+| R-08 | 希望なし（0）の Nak の後に、別の Request を送らない | RFC 3748 §5.3.1 | SHOULD |
+| R-09 | Access-Accept の EAP-Key-Name が EAP の Session-Id と一致する | RFC 7268 §2.2、RFC 5247 | MUST |
+| R-10 | EAP-Key-Name は、Access-Request に入っていたときだけ Access-Accept に入れる | RFC 7268 §2.2 | SHOULD |
 | R-07 | MS-MPPE 鍵の Salt の最上位ビットが 1 で、Send/Recv で重複しない | RFC 2548 §2.4.2 | MUST |
 | A-01 | AKA-Identity は最大 3 回、AT_ANY_ID_REQ は 1 回目だけ、AT_PERMANENT_ID_REQ の後に Identity の要求をしない | RFC 4187 §4.1.5・§9.1 | MUST |
 | A-02 | AT_IV を再利用しない（`identity_store` の履歴で、実行をまたいでも調べる） | RFC 4187 §10.12 | MUST |
@@ -298,6 +303,7 @@ sudo usermod -aG wireshark $USER
 | A-12 | EAP-AKA' の AUTN の AMF 分離ビットが 1 | RFC 9048 §3.3 | MUST |
 | A-13 | AT_KDF_INPUT があり、ネットワーク名が空でない | RFC 9048 §3.1 | MUST |
 | A-14 | EAP-AKA' の仮名に IMSI が含まれていない（推定による判定なので、既定は warn） | RFC 9048 §5.2 | MUST |
+| A-15 | EAP-AKA ヘッダと属性の Reserved（と AT_BIDDING の予約ビット）が 0（RFC が要求のキーワードを使っていないので SHOULD） | RFC 4187 §8.1・§10 | SHOULD |
 | A-16 | EAP-AKA/AKA' の要求の形式が正しい（既知の Subtype、未知のスキップ不可属性がない、必須属性がある） | RFC 4187 §6.3.1・§8.1 | MUST |
 | A-17 | AT_KDF の再提示が、選んだ KDF を元の offer の先頭に足しただけのもの | RFC 9048 §3.2 | MUST |
 | A-18 | 要求の AT_MAC があり、正しい | RFC 4187 §10.15 | MUST |
@@ -340,7 +346,7 @@ conformance violations=1 fail=0 warn=1 ids=R-02
   - AT_COUNTER が下限より小さければ、AT_COUNTER_TOO_SMALL で応答します。
   - 再認証の後の通知では、暗号化された AT_COUNTER を検証し、応答にも入れます。
   - 再認証コンテキストはメソッドごとに分け、別のメソッドでは使いません（RFC 9048 §7）。EAP-AKA' でネットワーク名が変わったときも使いません。
-  - AT_FULLAUTH_ID_REQ には、再認証 ID ではなく永続 ID で答えます。
+  - AT_FULLAUTH_ID_REQ と、別のメソッドで ID を求められたときは、再認証 ID ではなく、保存済みの仮名（なければ永続 ID）で答えます。
 - AT_CHECKCODE は、AKA-Identity の Request / Response を送受信したままの形でつないで照合します。一致しなければ Client-Error を返します。
 - EAP-AKA' の KDF 交渉に対応しています。offer の先頭の KDF に対応していなければ AT_KDF だけを返し、サーバの再提示を確かめます。
 

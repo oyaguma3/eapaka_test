@@ -1,0 +1,15 @@
+version: 1
+name: reauth_6_cross_method
+description: EAP-AKA の再認証 ID で始めて Nak で EAP-AKA' に切り替えると、サーバは再認証をせずにフル認証を行う（RFC 9048 §7）
+identity_source: reauth
+method: aka
+eap:
+  nak: { on: [23], propose: [50] }
+expect:
+  result: accept
+  auth_type: full
+  mppe:
+    require_present: true
+    verify_msk: true
+trace:
+  level: verbose

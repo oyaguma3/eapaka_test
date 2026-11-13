@@ -3,7 +3,8 @@
 # 6: AKA' の永続 ID、7: AKA' の仮名、8: AKA' の再認証 ID
 "0"*	AKA
 "2"*	AKA
-"4"*	AKA
+# AKA の再認証 ID には AKA' も許す。Nak で AKA' に切り替えて、メソッドをまたいだ再認証をしないかを試す（RFC 9048 §7）
+"4"*	AKA,AKA'
 # AKA' の永続 ID には AKA も許す（AKA' を先に書くと、AKA の Challenge の AT_BIDDING に D ビットが立つ）。
 # ピアが Nak で AKA を希望したときに、bidding down の試験ができる
 "6"*	AKA',AKA

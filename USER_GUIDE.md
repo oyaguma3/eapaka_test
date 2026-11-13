@@ -97,6 +97,7 @@ Main fields:
   - `nas_identifier`
   - `called_station_id` (format below)
   - `calling_station_id`
+  - `eap_key_name`: with `true`, a single-NUL EAP-Key-Name (attribute 102) is sent in Access-Request to ask for the Session-Id in Access-Accept (RFC 7268 §2.2); the returned value is compared with the peer's Session-Id
 
 - `eap.*`: EAP policies
   - `method_mismatch_policy`: `strict|warn|allow`
@@ -180,6 +181,7 @@ Main fields:
   - `identity_requests`: the sequence of AKA-Identity request kinds received (e.g. `[any, permanent]`; `[]` means no AKA-Identity)
   - `checkcode`: the AT_CHECKCODE verification result (`verified|absent`)
   - `auth_type`: the kind of authentication performed (`full|reauth`)
+  - `key_name`: the EAP-Key-Name result in Access-Accept (`match|undefined|absent`; undefined when no Session-Id is defined, as for EAP-AKA re-authentication)
   - `counter_too_small_sent`: whether the peer sent AT_COUNTER_TOO_SMALL
   - `notification`: expected AKA-Notification: `code` (the full code with the S and P bits; 32768 for success, 16384 for failure before authentication) and `present`
   - `bidding`: expected AT_BIDDING: `present`, `d_bit` and `action` (the peer's action, `reject|ignore`). Omitted fields are not checked
@@ -283,6 +285,9 @@ The tool can fail a run on server RFC violations even when the result matches th
 | R-04 | EAP-Success/Failure Identifier matches the last EAP-Response | RFC 3748 §4.2 | MUST |
 | R-05 | No success indication before the method completes or after it failed | RFC 3748 §4.2, RFC 4187 §6.2 | MUST |
 | R-06 | The server does not switch EAP types during a method | RFC 3748 §2.1 | MUST |
+| R-08 | No further Request after a Nak with type 0 | RFC 3748 §5.3.1 | SHOULD |
+| R-09 | EAP-Key-Name in Access-Accept matches the EAP Session-Id | RFC 7268 §2.2, RFC 5247 | MUST |
+| R-10 | EAP-Key-Name is included in Access-Accept only when the Access-Request carried one | RFC 7268 §2.2 | SHOULD |
 | R-07 | MS-MPPE key Salts have the MSB set and differ between Send and Recv | RFC 2548 §2.4.2 | MUST |
 | A-01 | At most 3 AKA-Identity rounds, AT_ANY_ID_REQ only in the first, no identity request after AT_PERMANENT_ID_REQ | RFC 4187 §4.1.5, §9.1 | MUST |
 | A-02 | AT_IV is not reused (also across runs, using the `identity_store` history) | RFC 4187 §10.12 | MUST |
@@ -298,6 +303,7 @@ The tool can fail a run on server RFC violations even when the result matches th
 | A-12 | The AMF separation bit in EAP-AKA' AUTN is 1 | RFC 9048 §3.3 | MUST |
 | A-13 | AT_KDF_INPUT is present with a non-empty network name | RFC 9048 §3.1 | MUST |
 | A-14 | EAP-AKA' pseudonyms do not reveal the IMSI (heuristic, warn by default) | RFC 9048 §5.2 | MUST |
+| A-15 | Reserved fields of the EAP-AKA header and attributes (and AT_BIDDING reserved bits) are zero (SHOULD, as the RFC uses no requirement keyword) | RFC 4187 §8.1, §10 | SHOULD |
 | A-16 | EAP-AKA/AKA' requests are well-formed (known subtype, no unknown non-skippable attribute, required attributes present) | RFC 4187 §6.3.1, §8.1 | MUST |
 | A-17 | An AT_KDF re-offer only prepends the selected KDF to the original offer | RFC 9048 §3.2 | MUST |
 | A-18 | AT_MAC in a request is present and valid | RFC 4187 §10.15 | MUST |
@@ -340,7 +346,7 @@ conformance violations=1 fail=0 warn=1 ids=R-02
   - An AT_COUNTER below the floor gets AT_COUNTER_TOO_SMALL.
   - Notifications after re-authentication have their encrypted AT_COUNTER verified and echoed.
   - Re-authentication contexts are kept per method and never used across method types (RFC 9048 §7), nor with a changed EAP-AKA' network name.
-  - AT_FULLAUTH_ID_REQ is answered with the permanent identity, not the re-authentication identity.
+  - AT_FULLAUTH_ID_REQ, and identity requests in another method, are answered with the stored pseudonym (or else the permanent identity), not the re-authentication identity.
 - AT_CHECKCODE is verified against the AKA-Identity Requests and Responses concatenated as exchanged; a mismatch gets Client-Error.
 - EAP-AKA' KDF negotiation is supported. If the first offered KDF is not supported, the peer replies with only AT_KDF and validates the server's re-offer.
 

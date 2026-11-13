@@ -10,5 +10,6 @@ expect:
   mppe:
     require_present: true
     verify_msk: true
+  key_name: undefined
 trace:
   level: verbose

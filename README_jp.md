@@ -62,6 +62,7 @@ go build -o eapaka_test ./cmd/eapaka_test
   - AMF が `sim.amf` と違っていても警告だけにしました。EAP-AKA' では、代わりに分離ビットを確かめます。
 - 異常系の注入（テストケースの `fault`）を追加しました。
 - MSK 照合を追加しました。`expect.mppe.verify_msk: true` を指定すると、MS-MPPE-Send/Recv-Key を復号した値を、ピアが導出した MSK と比べます。
+- 規則 A-15（予約フィールド）、R-08（Nak(0) の後の Request）、EAP-Key-Name の照合 R-09・R-10（`radius_attrs.eap_key_name`）を追加しました。AT_FULLAUTH_ID_REQ には仮名を優先して答えます。hostapd 2.12 では、メソッドをまたいだ再認証の確認を含む 19 ケースがすべて通ります。
 - 複数のケースやディレクトリを 1 回の実行で流せるようにしました（memory モードのストアを共有）。あわせて `repeat`、`--report json|junit`、`--stop-on-fail`、Session-Id / Peer-Id のトレース（RFC 5247、RFC 9048 §6）を追加しました。`interop/hostapd/run_cases.sh` は、hostapd の全ケースを 1 コマンドで流して JUnit のレポートを出します。
 - 高速再認証（RFC 4187 §5、RFC 9048 §3.3）に対応し、規則 A-03・A-04・A-11 を追加しました。EAP-AKA の再認証で、hostapd 2.12 との MSK 照合が通ることを確かめています。
 - 仮名認証（identity_store、identity_source）と AT_CHECKCODE に対応し、規則 A-01・A-02・A-05〜A-07・A-14・A-19 を追加しました。hostapd 2.12 で確かめています。

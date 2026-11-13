@@ -7,5 +7,6 @@ expect:
   mppe:
     require_present: true
     verify_msk: true
+  key_name: match
 trace:
   level: verbose
