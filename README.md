@@ -39,7 +39,7 @@ If you need packet capture in WSL, see section 9 in `USER_GUIDE.md`.
 ## Exit Codes
 
 - 0: PASS (matches expected result)
-- 1: FAIL (expected/actual mismatch)
+- 1: FAIL (expected/actual mismatch, or a server conformance violation handled as `fail`)
 - 2: ERROR (invalid config, communication error, parse error, etc.)
 
 ## Guides
@@ -54,6 +54,14 @@ If you need packet capture in WSL, see section 9 in `USER_GUIDE.md`.
   - `github.com/oyaguma3/go-eapaka`:
     `v0.0.0-20260222130953-db627581125a` ->
     `v0.3.0`
+- Added server conformance checks (RFC 3579/3748/2548/4187/9048). A violation handled as `fail` makes the run exit 1 even when the expected result matches. See section 10 of `USER_GUIDE.md`.
+- Aligned the peer with RFC 4187 and RFC 9048. This changes behavior:
+  - An invalid AT_MAC or a declined permanent identity request now gets Client-Error instead of Authentication-Reject.
+  - AT_MAC is verified over the received bytes, after AUTN.
+  - EAP-AKA' KDF negotiation now replies with only AT_KDF.
+  - A missing or empty AT_KDF_INPUT is rejected by default. Set `eap.aka_prime.empty_kdf_input: fallback` to keep the old behavior.
+  - An AMF different from `sim.amf` is now only a warning. For EAP-AKA', the AMF separation bit is checked instead.
+- Added fault injection (`fault` in testcases).
 
 ## Recent Updates (2026-02-20)
 

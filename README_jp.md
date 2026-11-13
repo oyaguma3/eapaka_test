@@ -39,7 +39,7 @@ go build -o eapaka_test ./cmd/eapaka_test
 ## 終了コード
 
 - 0: PASS（期待結果と一致）
-- 1: FAIL（期待結果不一致）
+- 1: FAIL（期待結果不一致、または `fail` として扱うサーバ準拠性違反）
 - 2: ERROR（設定不備、通信エラー、パース不能など）
 
 ## ユーザーガイド
@@ -53,6 +53,14 @@ go build -o eapaka_test ./cmd/eapaka_test
   - `github.com/oyaguma3/go-eapaka`:
     `v0.0.0-20260222130953-db627581125a` →
     `v0.3.0`
+- サーバ準拠性チェックを追加しました（RFC 3579/3748/2548/4187/9048）。`fail` として扱う違反があると、期待結果と一致していても終了コードは 1 になります。詳しくは `USER_GUIDE_jp.md` の第 10 章を参照してください。
+- ピアの動作を RFC 4187・RFC 9048 に合わせました。次の点で動作が変わります。
+  - AT_MAC が不正なときや、永続 ID の要求を断るときは、Authentication-Reject ではなく Client-Error を返します。
+  - AT_MAC は、受信したバイト列のまま AUTN の後に検証します。
+  - EAP-AKA' の KDF 交渉では、AT_KDF だけを返します。
+  - AT_KDF_INPUT がない・空の場合は、既定で拒否します。従来の動作にするには `eap.aka_prime.empty_kdf_input: fallback` を指定してください。
+  - AMF が `sim.amf` と違っていても警告だけにしました。EAP-AKA' では、代わりに分離ビットを確かめます。
+- 異常系の注入（テストケースの `fault`）を追加しました。
 
 ## 最近の更新 (2026-02-20)
 

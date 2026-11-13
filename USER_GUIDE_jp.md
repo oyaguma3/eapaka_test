@@ -43,6 +43,8 @@ eap:
   permanent_id_policy: "always"
   aka_prime:
     net_name: "wlan.mnc010.mcc440.3gppnetwork.org"
+    net_name_check: "off"
+    empty_kdf_input: "reject"
 
 identity:
   realm: "wlan.mnc010.mcc440.3gppnetwork.org"
@@ -57,6 +59,11 @@ sim:
 sqn_store:
   mode: "file"
   path: "/tmp/eapaka_test-sqn.json"
+
+conformance:
+  default_must: "fail"
+  default_should: "warn"
+  rules: {}
 ```
 
 主な項目:
@@ -76,7 +83,9 @@ sqn_store:
   - `method_mismatch_policy`: `strict|warn|allow`
   - `outer_identity_update_on_permanent_req`: `true|false`
   - `permanent_id_policy`: `always|conservative|deny`
-  - `aka_prime.net_name`: AKA' の Network Name（fallback）
+  - `aka_prime.net_name`: AKA' の Network Name。`net_name_check` での照合と、`empty_kdf_input: fallback` のときの補完に使う
+  - `aka_prime.net_name_check`: `off|warn|reject`（既定: off）。AT_KDF_INPUT と `net_name` をコロン区切りのフィールドごとに比べる。不一致なら warn は警告だけ、reject は Authentication-Reject
+  - `aka_prime.empty_kdf_input`: `reject|fallback`（既定: reject）。AT_KDF_INPUT がない・空のときに Authentication-Reject を返すか、`net_name` で補って続けるか。どちらでも違反 A-13 として記録する
 
 - `identity.realm`: Permanent ID 生成に使用する realm
 
@@ -84,12 +93,17 @@ sqn_store:
   - `imsi`
   - `ki`（16 bytes hex）
   - `opc`（16 bytes hex）
-  - `amf`（2 bytes hex）
+  - `amf`（2 bytes hex）。AUTN の AMF と違う場合は警告だけを出す
   - `sqn_initial_hex`（48 bit / 12 hex）
 
 - `sqn_store.*`: SQN 永続化
   - `mode`: `file|memory`
   - `path`: file モード時に必須
+
+- `conformance.*`: サーバ準拠性チェック（第 10 章）
+  - `default_must`: MUST の規則の扱い `fail|warn|off`（既定: fail）
+  - `default_should`: SHOULD の規則の扱い `fail|warn|off`（既定: warn）
+  - `rules`: 規則 ID ごとの上書き（例: `{ R-02: off }`）
 
 ## 4. テストケース（case）
 
@@ -116,6 +130,7 @@ expect:
 - `radius.*`: config を上書きする RADIUS 設定（任意）
 - `eap.*`: config を上書きする EAP 設定（任意）
   - `permanent_identity_override`: Permanent ID の完全指定
+  - `aka_prime.net_name_check` / `aka_prime.empty_kdf_input`: config と同じ
 
 - `sqn.reset`: SQN 初期化
 - `sqn.persist`: 永続化を行うか（未指定は true）
@@ -133,6 +148,9 @@ expect:
   - `dump_eap_hex`: EAP hex dump 出力（verbose 時のみ）
   - `dump_radius_attrs`: RADIUS 属性一覧出力（verbose 時のみ）
   - `save_path`: トレース出力先ファイル
+
+- `conformance.rules`: このケースだけの規則の扱い（例: 開発中の既知の違反を一時的に `warn` にする）
+- `fault`: ピアに注入する異常の一覧（第 10 章）
 
 ## 5. called_station_id の形式
 
@@ -203,3 +221,67 @@ sudo usermod -aG wireshark $USER
 
 3) 再ログイン後、Wireshark を起動し `lo`（または `any`）でキャプチャ  
 4) 表示フィルタに `udp.port == 1812 || udp.port == 1813` を指定
+
+## 10. サーバ準拠性チェックと異常系の注入
+
+### 準拠性チェック
+
+認証結果が期待どおりでも、サーバの RFC 違反を検出して FAIL にできます。違反は規則ごとに記録します。各規則は `fail` / `warn` / `off` のどれかとして扱います（既定は MUST が fail、SHOULD が warn）。`fail` の違反が 1 件でもあると、期待結果と一致していても終了コードは 1 になります。
+
+| ID | 検査内容 | 根拠 | レベル |
+|---|---|---|---|
+| R-01 | 応答の Message-Authenticator が正しい | RFC 3579 §3.2 | MUST |
+| R-02 | EAP-Message を含む応答に Message-Authenticator がある | RFC 3579 §3.1 | SHOULD |
+| R-03a | Access-Accept は EAP-Success を、Access-Reject は EAP-Failure を含む | RFC 3579 §2.6.3 | SHOULD |
+| R-03b | Access-Challenge は EAP-Request を含む | RFC 3579 §2.1 | MUST |
+| R-04 | EAP-Success/Failure の Identifier が直前の EAP-Response と一致する | RFC 3748 §4.2 | MUST |
+| R-05 | メソッドの完了前や失敗後に成功を通知しない | RFC 3748 §4.2、RFC 4187 §6.2 | MUST |
+| R-06 | メソッドの途中で EAP タイプを切り替えない | RFC 3748 §2.1 | MUST |
+| R-07 | MS-MPPE 鍵の Salt の最上位ビットが 1 で、Send/Recv で重複しない | RFC 2548 §2.4.2 | MUST |
+| A-12 | EAP-AKA' の AUTN の AMF 分離ビットが 1 | RFC 9048 §3.3 | MUST |
+| A-13 | AT_KDF_INPUT があり、ネットワーク名が空でない | RFC 9048 §3.1 | MUST |
+| A-16 | EAP-AKA/AKA' の要求の形式が正しい（既知の Subtype、未知のスキップ不可属性がない、必須属性がある） | RFC 4187 §6.3.1・§8.1 | MUST |
+| A-17 | AT_KDF の再提示が、選んだ KDF を元の offer の先頭に足しただけのもの | RFC 9048 §3.2 | MUST |
+| A-18 | 要求の AT_MAC があり、正しい | RFC 4187 §10.15 | MUST |
+
+違反はトレースに次の形で出力し、実行の最後に件数をまとめます。
+
+```text
+violation id=R-02 level=SHOULD action=warn ref="RFC 3579 §3.1" round=2 detail="Access-Challenge carries EAP-Message without Message-Authenticator"
+conformance violations=1 fail=0 warn=1 ids=R-02
+```
+
+### ピアとしての動作
+
+- AT_MAC は受信したバイト列のまま検証します。AUTN と SQN を確かめた後に検証します。
+- 次の場合は Client-Error（コード 0）を返します。
+  - AT_MAC が不正、またはない
+  - 解析できない要求
+  - 未知のスキップ不可属性
+  - 想定外の Subtype
+  - 永続 ID の要求を断るとき（`permanent_id_policy: deny` など）
+- 次の場合は Authentication-Reject を返します。
+  - AUTN が不正
+  - EAP-AKA' で AMF の分離ビットが 0
+  - 対応できる KDF がない
+- EAP-AKA' の KDF 交渉に対応しています。offer の先頭の KDF に対応していなければ AT_KDF だけを返し、サーバの再提示を確かめます。
+
+### 異常系の注入
+
+ピアがわざと誤った応答を送り、サーバの異常系の処理を確かめます。
+
+```yaml
+fault:
+  - { at: challenge_response, action: corrupt_mac }
+```
+
+| `at` | 使える `action` |
+|---|---|
+| `identity_response` | `client_error`、`auth_reject` |
+| `challenge_response` | `corrupt_mac`、`wrong_res`、`client_error`、`auth_reject` |
+
+- `corrupt_mac`: 応答の AT_MAC を壊す
+- `wrong_res`: 誤った AT_RES を正しい AT_MAC で送る
+- `client_error` / `auth_reject`: 応答を Client-Error / Authentication-Reject に差し替える
+
+`corrupt_mac`・`wrong_res` を注入したのにサーバが成功を返した場合は、R-05 の違反になります。期待結果は通常 `reject` にします。
