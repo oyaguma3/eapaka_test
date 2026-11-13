@@ -14,9 +14,13 @@ import (
 	"github.com/oyaguma3/eapaka_test/trace"
 )
 
-func buildIDStore(cfg config.Config) (idstore.Store, error) {
+// buildIDStore は識別子ストアを返す。memory モードでは shared を使う（nil なら新しく作る）。
+func buildIDStore(cfg config.Config, shared *idstore.MemoryStore) (idstore.Store, error) {
 	switch cfg.IdentityStore.Mode {
 	case "", "memory":
+		if shared != nil {
+			return shared, nil
+		}
 		return idstore.NewMemoryStore(), nil
 	case "file":
 		if cfg.IdentityStore.Path == "" {

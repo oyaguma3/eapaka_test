@@ -174,6 +174,13 @@ func (m *Method) handleChallenge(req *eapaka.Packet, raw []byte, sess *eap.Sessi
 	m.s.keys = keys
 	sess.MSK = keys.msk
 	sess.Obs.AuthType = "full"
+	// Session-Id は「タイプ || RAND || AUTN」、Peer-Id は鍵の導出に使った ID（RFC 5247 付録 A、RFC 9048 §6）
+	sess.Obs.PeerID = identity
+	if req.Type == eapaka.TypeAKA {
+		sess.Obs.SessionID, _ = eapaka.SessionIDAKA(rand, autn)
+	} else {
+		sess.Obs.SessionID, _ = eapaka.SessionIDAKAPrime(rand, autn)
+	}
 	// 認証が成功したら、受け取った再認証 ID で再認証の状態を置き換える（なければ破棄する）
 	sess.Pending.Method, sess.Pending.AuthDone, sess.Pending.Reauth = req.Type, true, nil
 	if m.s.nextReauthID != "" {

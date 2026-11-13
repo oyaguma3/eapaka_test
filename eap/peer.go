@@ -95,6 +95,10 @@ type Observations struct {
 	ReauthCounter uint16
 	// CounterTooSmallSent は、AT_COUNTER_TOO_SMALL を送ったこと（RFC 4187 §5.5）。
 	CounterTooSmallSent bool
+	// SessionID と PeerID は、EAP のエクスポートパラメータ（X8、RFC 5247 付録 A、RFC 9048 §6）。
+	// EAP-AKA の再認証の Session-Id は RFC に定義がないので空。
+	SessionID []byte
+	PeerID    string
 }
 
 // NotificationObs は AKA-Notification の記録。Code は S・P ビットを含む 16 bit の値。

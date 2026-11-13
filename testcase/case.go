@@ -31,6 +31,9 @@ type Case struct {
 
 	Conformance Conformance `yaml:"conformance"`
 	Faults      []Fault     `yaml:"fault"`
+	// Repeat は、このケースを続けて実行する回数（X7。0 と 1 は 1 回）。再認証を続けて、
+	// AT_COUNTER が増え続けるかを確かめるのに使う。
+	Repeat int `yaml:"repeat"`
 }
 
 // Fault はピアに注入する異常（設計書 §6.4、X4）。
@@ -168,6 +171,9 @@ func (c Case) Validate() error {
 	case "permanent", "pseudonym", "reauth", "auto":
 	default:
 		return fmt.Errorf("testcase: identity_source must be literal, permanent, pseudonym, reauth, or auto")
+	}
+	if c.Repeat < 0 {
+		return fmt.Errorf("testcase: repeat must not be negative")
 	}
 	if c.Method != "" && !isOneOf(c.Method, "aka", "aka_prime") {
 		return fmt.Errorf("testcase: method must be aka or aka_prime")

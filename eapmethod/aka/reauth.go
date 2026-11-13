@@ -109,6 +109,16 @@ func (m *Method) handleReauth(req *eapaka.Packet, raw []byte, sess *eap.Session)
 	m.s.reauthed, m.s.counter = true, *counter
 	sess.MSK = rk.MSK
 	sess.Obs.AuthType, sess.Obs.ReauthCounter = "reauth", *counter
+	// EAP-AKA' の再認証の Session-Id は「0x32 || NONCE_S || 要求の AT_MAC」（RFC 9048 §6）。
+	// EAP-AKA の再認証には定義がない（RFC 5247 付録 A）
+	sess.Obs.PeerID, sess.Obs.SessionID = identity, nil
+	if req.Type == eapaka.TypeAKAPrime {
+		for _, a := range req.Attributes {
+			if v, ok := a.(*eapaka.AtMac); ok {
+				sess.Obs.SessionID, _ = eapaka.SessionIDAKAPrimeReauth(nonceS, v.MAC)
+			}
+		}
+	}
 	m.s.phase = phaseChallenged
 	if useResultInd {
 		m.s.resultInd = true

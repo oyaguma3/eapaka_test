@@ -55,6 +55,26 @@ func RunCase(ctx context.Context, cfg config.Config, tc testcase.Case) (int, err
 // Run executes a single testcase and returns the result including conformance violations.
 // 期待結果と一致していても、fail の違反があれば exit 1 にする（設計書 §6.1）。
 func Run(ctx context.Context, cfg config.Config, tc testcase.Case) Result {
+	return NewRunner(cfg).Run(ctx, tc)
+}
+
+// Runner は、同じ設定で複数のケースを続けて実行する（X7、設計書 §6.7）。
+// memory モードの SQN ストアと識別子ストアをケースの間で共有するので、
+// 鍵をディスクに書かずに「フル認証 → 再認証」の連鎖を試せる。
+type Runner struct {
+	cfg config.Config
+	sqn *sqnstore.MemoryStore
+	ids *idstore.MemoryStore
+}
+
+// NewRunner は Runner を作る。
+func NewRunner(cfg config.Config) *Runner {
+	return &Runner{cfg: cfg, sqn: sqnstore.NewMemoryStore(), ids: idstore.NewMemoryStore()}
+}
+
+// Run は 1 つのケースを実行する。
+func (r *Runner) Run(ctx context.Context, tc testcase.Case) Result {
+	cfg := r.cfg
 	merged := config.ApplyTestcase(cfg, tc)
 	policy, err := merged.Conformance.Policy()
 	if err != nil {
@@ -66,7 +86,7 @@ func Run(ctx context.Context, cfg config.Config, tc testcase.Case) Result {
 	rec.OnReport = logger.LogViolation
 
 	var res Result
-	peer, ids, err := setupPeer(cfg, tc)
+	peer, ids, err := r.setupPeer(tc)
 	if err != nil {
 		res.ExitCode, res.Err = wrap(2, err, "setup")
 	} else {
@@ -84,9 +104,10 @@ func Run(ctx context.Context, cfg config.Config, tc testcase.Case) Result {
 }
 
 // setupPeer は SQN ストアと EAP ピアを用意する。
-func setupPeer(cfg config.Config, tc testcase.Case) (*eap.Peer, idstore.Store, error) {
+func (r *Runner) setupPeer(tc testcase.Case) (*eap.Peer, idstore.Store, error) {
+	cfg := r.cfg
 	merged := config.ApplyTestcase(cfg, tc)
-	store, err := buildStore(merged, tc)
+	store, err := buildStore(merged, tc, r.sqn)
 	if err != nil {
 		return nil, nil, fmt.Errorf("build store: %w", err)
 	}
@@ -95,7 +116,7 @@ func setupPeer(cfg config.Config, tc testcase.Case) (*eap.Peer, idstore.Store, e
 			return nil, nil, fmt.Errorf("sqn reset: %w", err)
 		}
 	}
-	ids, err := buildIDStore(merged)
+	ids, err := buildIDStore(merged, r.ids)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -190,6 +211,7 @@ func exchange(ctx context.Context, merged config.Config, tc testcase.Case, peer 
 			if logger != nil {
 				logger.LogMPPE(resp.MPPE)
 				logger.LogMSK(peer.Session.Obs)
+				logger.LogSession(peer.Session.Obs)
 			}
 			return evaluate(tc, resp, true, peer.Session.Obs)
 		case radius.CodeAccessReject:
@@ -203,7 +225,8 @@ func exchange(ctx context.Context, merged config.Config, tc testcase.Case, peer 
 	}
 }
 
-func buildStore(cfg config.Config, tc testcase.Case) (sqnstore.Store, error) {
+// buildStore は SQN ストアを返す。memory モードでは shared を使う（nil なら新しく作る）。
+func buildStore(cfg config.Config, tc testcase.Case, shared *sqnstore.MemoryStore) (sqnstore.Store, error) {
 	persist := true
 	if tc.SQN.Persist != nil {
 		persist = *tc.SQN.Persist
@@ -213,6 +236,9 @@ func buildStore(cfg config.Config, tc testcase.Case) (sqnstore.Store, error) {
 	}
 	switch cfg.SQNStore.Mode {
 	case "memory":
+		if shared != nil {
+			return shared, nil
+		}
 		return sqnstore.NewMemoryStore(), nil
 	case "file":
 		if cfg.SQNStore.Path == "" {

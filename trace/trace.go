@@ -114,6 +114,23 @@ func (l *Logger) LogMSK(obs eap.Observations) {
 	fmt.Fprintln(l.Out, line)
 }
 
+// LogSession writes the EAP export parameters (X8). The Session-Id contains RAND and AUTN
+// (or NONCE_S), so it is masked unless unsafe logging is enabled.
+func (l *Logger) LogSession(obs eap.Observations) {
+	if l == nil || l.Out == nil || obs.AuthType == "" {
+		return
+	}
+	sid := "undefined"
+	if len(obs.SessionID) > 0 {
+		sid = maskAKABytes(obs.SessionID, l.Unsafe)
+	}
+	peer := maskIdentity(obs.PeerID)
+	if l.Unsafe {
+		peer = obs.PeerID
+	}
+	fmt.Fprintf(l.Out, "eap auth_type=%s peer_id=%s session_id=%s\n", obs.AuthType, peer, sid)
+}
+
 // LogWarn writes a warning that is not a conformance violation.
 func (l *Logger) LogWarn(msg string) {
 	if l == nil || l.Out == nil {
