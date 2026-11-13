@@ -16,7 +16,7 @@ This README provides a quick overview for external users.
 
 ## Requirements
 
-- Go 1.25.x (1.25 or newer)
+- Go 1.27.4 or newer
 
 ## Build
 
@@ -46,6 +46,14 @@ If you need packet capture in WSL, see section 9 in `USER_GUIDE.md`.
 
 - English guide: `USER_GUIDE.md`
 - Japanese guide: `USER_GUIDE_jp.md`
+
+## Recent Updates (2026-11-14)
+
+- Raised the required Go version to 1.27.4.
+- Updated `go-eapaka` dependency to `v0.3.0`, which adds the building blocks for pseudonyms, fast re-authentication, EAP-Notification and AT_BIDDING. This update alone does not change the behavior of `eapaka_test`.
+  - `github.com/oyaguma3/go-eapaka`:
+    `v0.0.0-20260222130953-db627581125a` ->
+    `v0.3.0`
 
 ## Recent Updates (2026-02-20)
 

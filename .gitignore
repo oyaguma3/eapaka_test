@@ -2,6 +2,9 @@
 /.gocache/
 /.vscode/
 /eapaka_test
+# 手元の go-eapaka と並行開発するときの go.work
+/go.work
+/go.work.sum
 *.exe
 *.test
 *.out
