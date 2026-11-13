@@ -1,0 +1,13 @@
+version: 1
+name: reauth_3_chain_repeat
+description: 再認証で受け取った次の再認証 ID で、もう一度再認証できる（AT_COUNTER が増える）
+identity_source: reauth
+method: aka
+expect:
+  result: accept
+  auth_type: reauth
+  mppe:
+    require_present: true
+    verify_msk: true
+trace:
+  level: verbose

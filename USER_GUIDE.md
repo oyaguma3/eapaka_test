@@ -145,9 +145,9 @@ expect:
 Main fields:
 
 - `identity`: initial outer identity (required when `identity_source` is literal)
-- `identity_source`: how to choose the start identity: `literal` (default; use `identity`), `permanent` (built from the IMSI and realm), `pseudonym` (the stored pseudonym plus the realm; ERROR if none), `auto` (pseudonym, then permanent)
+- `identity_source`: how to choose the start identity: `literal` (default; use `identity`), `permanent` (built from the IMSI and realm), `pseudonym` (the stored pseudonym plus the realm; ERROR if none), `reauth` (the stored re-authentication identity; ERROR if none), `auto` (re-authentication identity, pseudonym, then permanent). A re-authentication identity is taken out of the store before use, so it is never reused even if the exchange does not complete
 - `method`: the method of the identity when `identity_source` is not literal, `aka|aka_prime` (default: aka; decides the permanent prefix 0 / 6 and which pseudonym to use)
-- `identity_store.reset`: clear the records (pseudonym and AT_IV history) of the IMSI before the run
+- `identity_store.reset`: clear the records (pseudonym, re-authentication context, AT_IV and NONCE_S history) of the IMSI before the run
 - `identity_store.persist`: whether to store a received pseudonym (default: true; stored on Access-Accept)
 - `radius.*`: optional per-case override for radius settings
 - `eap.*`: optional per-case override for eap settings
@@ -167,6 +167,8 @@ Main fields:
   - `next_pseudonym` / `next_reauth_id`: whether the next pseudonym / re-authentication identity is received in AT_ENCR_DATA (`present|absent`)
   - `identity_requests`: the sequence of AKA-Identity request kinds received (e.g. `[any, permanent]`; `[]` means no AKA-Identity)
   - `checkcode`: the AT_CHECKCODE verification result (`verified|absent`)
+  - `auth_type`: the kind of authentication performed (`full|reauth`)
+  - `counter_too_small_sent`: whether the peer sent AT_COUNTER_TOO_SMALL
   - `notification`: expected AKA-Notification: `code` (the full code with the S and P bits; 32768 for success, 16384 for failure before authentication) and `present`
   - `bidding`: expected AT_BIDDING: `present`, `d_bit` and `action` (the peer's action, `reject|ignore`). Omitted fields are not checked
 
@@ -271,12 +273,15 @@ The tool can fail a run on server RFC violations even when the result matches th
 | R-07 | MS-MPPE key Salts have the MSB set and differ between Send and Recv | RFC 2548 §2.4.2 | MUST |
 | A-01 | At most 3 AKA-Identity rounds, AT_ANY_ID_REQ only in the first, no identity request after AT_PERMANENT_ID_REQ | RFC 4187 §4.1.5, §9.1 | MUST |
 | A-02 | AT_IV is not reused (also across runs, using the `identity_store` history) | RFC 4187 §10.12 | MUST |
+| A-03 | AT_NONCE_S is not reused (also across runs, using the `identity_store` history) | RFC 4187 §10.18 | MUST |
+| A-04 | The re-authentication AT_COUNTER is greater than in earlier re-authentications | RFC 4187 §5.1, §5.4 | MUST |
 | A-05 | AT_ENCR_DATA is a multiple of 16 bytes, and AT_PADDING is zero-filled and last | RFC 4187 §10.12 | MUST |
 | A-06 | AT_NEXT_PSEUDONYM has no realm, and AT_NEXT_PSEUDONYM / AT_NEXT_REAUTH_ID are sent encrypted | RFC 4187 §10.10, §10.11 | MUST |
 | A-07 | AT_RESULT_IND is not included in AT_ENCR_DATA | RFC 4187 §10.14 | MUST |
 | A-08 | AKA-Notification: S=0 when P=1, P=0 only after successful authentication, one round per exchange, success only with AT_RESULT_IND | RFC 4187 §6.1, §6.2 | MUST |
 | A-09 | AT_BIDDING is not included in EAP-AKA' messages | RFC 9048 §4 | MUST |
 | A-10 | After the peer's Client-Error or Authentication-Reject the server sends EAP-Failure (no other Request) | RFC 4187 §6.3.1 | MUST |
+| A-11 | After AT_COUNTER_TOO_SMALL the server sends a Challenge without AKA-Identity | RFC 4187 §5.5 | MUST |
 | A-12 | The AMF separation bit in EAP-AKA' AUTN is 1 | RFC 9048 §3.3 | MUST |
 | A-13 | AT_KDF_INPUT is present with a non-empty network name | RFC 9048 §3.1 | MUST |
 | A-14 | EAP-AKA' pseudonyms do not reveal the IMSI (heuristic, warn by default) | RFC 9048 §5.2 | MUST |
@@ -315,7 +320,14 @@ conformance violations=1 fail=0 warn=1 ids=R-02
 - AT_ENCR_DATA in a Challenge is decrypted after AT_MAC is verified.
   - A received pseudonym (AT_NEXT_PSEUDONYM) is stored in `identity_store` on Access-Accept.
   - Data that cannot be decrypted, bad padding or an unknown non-skippable attribute gets Client-Error.
-  - A re-authentication identity (AT_NEXT_REAUTH_ID) is only recorded as received; storing and using it will come later.
+  - A received re-authentication identity (AT_NEXT_REAUTH_ID) is stored as a re-authentication context, including keys. After a successful authentication without one, the re-authentication state is cleared.
+- Fast re-authentication (RFC 4187 §5, RFC 9048 §3.3) is supported.
+  - AT_MAC is verified first, then AT_ENCR_DATA is decrypted for AT_COUNTER, AT_NONCE_S and AT_NEXT_REAUTH_ID.
+  - The new MSK/EMSK are derived, and the response carries the encrypted counter and AT_MAC over the packet and NONCE_S. `verify_msk` also checks the re-authentication MSK.
+  - An AT_COUNTER below the floor gets AT_COUNTER_TOO_SMALL.
+  - Notifications after re-authentication have their encrypted AT_COUNTER verified and echoed.
+  - Re-authentication contexts are kept per method and never used across method types (RFC 9048 §7), nor with a changed EAP-AKA' network name.
+  - AT_FULLAUTH_ID_REQ is answered with the permanent identity, not the re-authentication identity.
 - AT_CHECKCODE is verified against the AKA-Identity Requests and Responses concatenated as exchanged; a mismatch gets Client-Error.
 - EAP-AKA' KDF negotiation is supported. If the first offered KDF is not supported, the peer replies with only AT_KDF and validates the server's re-offer.
 
@@ -332,6 +344,8 @@ fault:
 |---|---|
 | `identity_response` | `client_error`, `auth_reject` |
 | `challenge_response` | `corrupt_mac`, `wrong_res`, `client_error`, `auth_reject` |
+| `reauth_response` | `corrupt_mac`, `wrong_counter`, `counter_too_small`, `client_error` |
+| `start` | `reuse_reauth_id` (use the last used re-authentication identity again) |
 
 - `corrupt_mac`: corrupt AT_MAC in the response
 - `wrong_res`: send a wrong AT_RES with a valid AT_MAC

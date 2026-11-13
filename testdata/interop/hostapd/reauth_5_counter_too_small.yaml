@@ -1,0 +1,13 @@
+version: 1
+name: reauth_5_counter_too_small
+description: ピアが AT_COUNTER_TOO_SMALL を返すと、サーバは AKA-Identity を挟まずにフル認証の Challenge を送る（RFC 4187 §5.5）
+identity_source: reauth
+method: aka
+fault:
+  - { at: reauth_response, action: counter_too_small }
+expect:
+  result: accept
+  auth_type: full
+  counter_too_small_sent: true
+trace:
+  level: verbose

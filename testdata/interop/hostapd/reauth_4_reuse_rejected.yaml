@@ -1,0 +1,12 @@
+version: 1
+name: reauth_4_reuse_rejected
+description: 使用済みの再認証 ID をもう一度使うと、サーバは再認証せずにフル認証を行う（RFC 4187 §4.1.7）
+identity_source: reauth
+method: aka
+fault:
+  - { at: start, action: reuse_reauth_id }
+expect:
+  result: accept
+  auth_type: full
+trace:
+  level: verbose

@@ -145,9 +145,9 @@ expect:
 主な項目:
 
 - `identity`: 開始時の outer identity（`identity_source` が literal のときは必須）
-- `identity_source`: 開始時の ID の選び方。`literal`（既定。`identity` をそのまま使う）、`permanent`（IMSI とレルムから永続 ID を作る）、`pseudonym`（保存済みの仮名＋レルム。なければ ERROR）、`auto`（仮名 → 永続 ID）
+- `identity_source`: 開始時の ID の選び方。`literal`（既定。`identity` をそのまま使う）、`permanent`（IMSI とレルムから永続 ID を作る）、`pseudonym`（保存済みの仮名＋レルム。なければ ERROR）、`reauth`（保存済みの再認証 ID。なければ ERROR）、`auto`（再認証 ID → 仮名 → 永続 ID）。再認証 ID は使う前にストアから外します（交換が完了しなくても再利用しない）
 - `method`: `identity_source` が literal 以外のときの ID のメソッド。`aka|aka_prime`（既定: aka。永続 ID の先頭文字 0 / 6 と、使う仮名が決まる）
-- `identity_store.reset`: 実行の前に、この IMSI の記録（仮名と AT_IV の履歴）を消す
+- `identity_store.reset`: 実行の前に、この IMSI の記録（仮名、再認証コンテキスト、AT_IV と NONCE_S の履歴）を消す
 - `identity_store.persist`: 受け取った仮名を保存するか（既定: true。Access-Accept を受けたときに保存する）
 - `radius.*`: config を上書きする RADIUS 設定（任意）
 - `eap.*`: config を上書きする EAP 設定（任意）
@@ -167,6 +167,8 @@ expect:
   - `next_pseudonym` / `next_reauth_id`: AT_ENCR_DATA で次回の仮名・再認証 ID を受け取るか（`present|absent`）
   - `identity_requests`: 受け取る AKA-Identity の要求の種類の並び（例: `[any, permanent]`。`[]` は AKA-Identity がないこと）
   - `checkcode`: AT_CHECKCODE の検証結果（`verified|absent`）
+  - `auth_type`: 行われた認証の種類（`full|reauth`）
+  - `counter_too_small_sent`: ピアが AT_COUNTER_TOO_SMALL を送ったか
   - `notification`: AKA-Notification の期待値。`code`（S・P ビットを含むコード値。32768 は成功、16384 は認証前の失敗）、`present`（受け取ったか）
   - `bidding`: AT_BIDDING の期待値。`present`（受け取ったか）、`d_bit`、`action`（ピアの動作 `reject|ignore`）。省略した項目は検査しない
 
@@ -271,12 +273,15 @@ sudo usermod -aG wireshark $USER
 | R-07 | MS-MPPE 鍵の Salt の最上位ビットが 1 で、Send/Recv で重複しない | RFC 2548 §2.4.2 | MUST |
 | A-01 | AKA-Identity は最大 3 回、AT_ANY_ID_REQ は 1 回目だけ、AT_PERMANENT_ID_REQ の後に Identity の要求をしない | RFC 4187 §4.1.5・§9.1 | MUST |
 | A-02 | AT_IV を再利用しない（`identity_store` の履歴で、実行をまたいでも調べる） | RFC 4187 §10.12 | MUST |
+| A-03 | AT_NONCE_S を再利用しない（`identity_store` の履歴で、実行をまたいでも調べる） | RFC 4187 §10.18 | MUST |
+| A-04 | 再認証の AT_COUNTER が、それまでの再認証より大きい | RFC 4187 §5.1・§5.4 | MUST |
 | A-05 | AT_ENCR_DATA が 16 バイトの倍数で、AT_PADDING がゼロ埋めで最後にある | RFC 4187 §10.12 | MUST |
 | A-06 | AT_NEXT_PSEUDONYM にレルムを含めず、AT_NEXT_PSEUDONYM / AT_NEXT_REAUTH_ID は暗号化して送る | RFC 4187 §10.10・§10.11 | MUST |
 | A-07 | AT_RESULT_IND を AT_ENCR_DATA の中に入れない | RFC 4187 §10.14 | MUST |
 | A-08 | AKA-Notification は P=1 なら S=0、P=0 は認証成功後だけ、1 回の交換で 1 回だけ、成功通知は AT_RESULT_IND を使ったときだけ | RFC 4187 §6.1・§6.2 | MUST |
 | A-09 | AT_BIDDING を EAP-AKA' のメッセージに入れない | RFC 9048 §4 | MUST |
 | A-10 | ピアの Client-Error / Authentication-Reject の後は EAP-Failure を送る（別の Request を送らない） | RFC 4187 §6.3.1 | MUST |
+| A-11 | AT_COUNTER_TOO_SMALL の後は、AKA-Identity を挟まずに Challenge を送る | RFC 4187 §5.5 | MUST |
 | A-12 | EAP-AKA' の AUTN の AMF 分離ビットが 1 | RFC 9048 §3.3 | MUST |
 | A-13 | AT_KDF_INPUT があり、ネットワーク名が空でない | RFC 9048 §3.1 | MUST |
 | A-14 | EAP-AKA' の仮名に IMSI が含まれていない（推定による判定なので、既定は warn） | RFC 9048 §5.2 | MUST |
@@ -315,7 +320,14 @@ conformance violations=1 fail=0 warn=1 ids=R-02
 - Challenge の AT_ENCR_DATA は、AT_MAC を検証した後に復号します。
   - 受け取った仮名（AT_NEXT_PSEUDONYM）は、Access-Accept を受けたら `identity_store` に保存します。
   - 復号できない、パディングが不正、未知のスキップ不可属性がある場合は、Client-Error を返します。
-  - 再認証 ID（AT_NEXT_REAUTH_ID）は受け取ったことだけを記録します。保存と利用は今後対応します。
+  - 再認証 ID（AT_NEXT_REAUTH_ID）を受け取ったら、再認証コンテキスト（鍵を含む）として保存します。認証が成功して受け取らなかったときは、再認証の状態を破棄します。
+- 高速再認証（RFC 4187 §5、RFC 9048 §3.3）に対応しています。
+  - AT_MAC を検証してから AT_ENCR_DATA を復号し、AT_COUNTER・AT_NONCE_S・AT_NEXT_REAUTH_ID を取り出します。
+  - 新しい MSK・EMSK を導出し、暗号化した AT_COUNTER と、「パケット＋NONCE_S」に対する AT_MAC で応答します。`verify_msk` で再認証の MSK も照合できます。
+  - AT_COUNTER が下限より小さければ、AT_COUNTER_TOO_SMALL で応答します。
+  - 再認証の後の通知では、暗号化された AT_COUNTER を検証し、応答にも入れます。
+  - 再認証コンテキストはメソッドごとに分け、別のメソッドでは使いません（RFC 9048 §7）。EAP-AKA' でネットワーク名が変わったときも使いません。
+  - AT_FULLAUTH_ID_REQ には、再認証 ID ではなく永続 ID で答えます。
 - AT_CHECKCODE は、AKA-Identity の Request / Response を送受信したままの形でつないで照合します。一致しなければ Client-Error を返します。
 - EAP-AKA' の KDF 交渉に対応しています。offer の先頭の KDF に対応していなければ AT_KDF だけを返し、サーバの再提示を確かめます。
 
@@ -332,6 +344,8 @@ fault:
 |---|---|
 | `identity_response` | `client_error`、`auth_reject` |
 | `challenge_response` | `corrupt_mac`、`wrong_res`、`client_error`、`auth_reject` |
+| `reauth_response` | `corrupt_mac`、`wrong_counter`、`counter_too_small`、`client_error` |
+| `start` | `reuse_reauth_id`（直近に使った再認証 ID をもう一度使う） |
 
 - `corrupt_mac`: 応答の AT_MAC を壊す
 - `wrong_res`: 誤った AT_RES を正しい AT_MAC で送る

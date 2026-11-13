@@ -62,6 +62,7 @@ go build -o eapaka_test ./cmd/eapaka_test
   - AMF が `sim.amf` と違っていても警告だけにしました。EAP-AKA' では、代わりに分離ビットを確かめます。
 - 異常系の注入（テストケースの `fault`）を追加しました。
 - MSK 照合を追加しました。`expect.mppe.verify_msk: true` を指定すると、MS-MPPE-Send/Recv-Key を復号した値を、ピアが導出した MSK と比べます。
+- 高速再認証（RFC 4187 §5、RFC 9048 §3.3）に対応し、規則 A-03・A-04・A-11 を追加しました。EAP-AKA の再認証で、hostapd 2.12 との MSK 照合が通ることを確かめています。
 - 仮名認証（identity_store、identity_source）と AT_CHECKCODE に対応し、規則 A-01・A-02・A-05〜A-07・A-14・A-19 を追加しました。hostapd 2.12 で確かめています。
 - AKA-Notification、AT_RESULT_IND、RFC 3748 の Notification（Type 2）に対応し、規則 A-08・A-10 を追加しました。AT_RESULT_IND を有効にした hostapd 2.12 で確かめています。
 - AT_BIDDING（RFC 9048 §4）と EAP Nak（メソッドの希望順と強制 Nak）に対応しました。強制 Nak でサーバを EAP-AKA に誘導し、bidding down を試せます。hostapd 2.12 で確かめています。

@@ -1,0 +1,12 @@
+version: 1
+name: reauth_1_issue
+description: 永続 ID でのフル認証で、次回の再認証 ID を受け取り、再認証コンテキストを保存する
+identity_source: permanent
+method: aka
+identity_store: { reset: true }
+expect:
+  result: accept
+  auth_type: full
+  next_reauth_id: present
+trace:
+  level: verbose

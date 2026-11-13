@@ -1,0 +1,14 @@
+version: 1
+name: reauth_2_use
+description: 保存した再認証 ID で高速再認証を行い、新しい MSK が MS-MPPE 鍵と一致する（msk_verify_reauth）
+identity_source: reauth
+method: aka
+expect:
+  result: accept
+  auth_type: reauth
+  next_reauth_id: present
+  mppe:
+    require_present: true
+    verify_msk: true
+trace:
+  level: verbose
