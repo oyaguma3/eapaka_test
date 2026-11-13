@@ -17,6 +17,14 @@ type Config struct {
 	SQNStore    SQNStoreConfig    `yaml:"sqn_store"`
 	Conformance ConformanceConfig `yaml:"conformance"`
 	MPPE        MPPEConfig        `yaml:"mppe"`
+	// IdentityStore は仮名などを保存する識別子ストア（memory / file。既定は memory）。
+	IdentityStore IdentityStoreConfig `yaml:"identity_store"`
+}
+
+// IdentityStoreConfig は識別子ストアの設定（設計書 §4.1）。
+type IdentityStoreConfig struct {
+	Mode string `yaml:"mode"`
+	Path string `yaml:"path"`
 }
 
 // MPPEConfig は MS-MPPE 鍵と MSK の対応付け（設計書 §6.2）。
@@ -50,6 +58,8 @@ type EAPConfig struct {
 	// MethodPreference は使ってよい EAP メソッドの希望順（X5）。空なら [50, 23]。
 	MethodPreference []uint8   `yaml:"method_preference"`
 	Nak              NakConfig `yaml:"nak"`
+	// Checkcode は応答に AT_CHECKCODE を入れるか（auto / always / never。既定 auto、X6）。
+	Checkcode string `yaml:"checkcode"`
 	// ResultInd は、サーバが AT_RESULT_IND を送ってきたときに応答にも入れるか（既定 true、RFC 4187 §6.2）。
 	ResultInd *bool `yaml:"result_ind"`
 	// BiddingPolicy は EAP-AKA の AT_BIDDING（D=1）の扱い（reject / ignore、RFC 9048 §4）。
@@ -169,6 +179,12 @@ func (c *Config) ApplyDefaults() {
 	if c.EAP.BiddingPolicy == "" {
 		c.EAP.BiddingPolicy = "reject"
 	}
+	if c.EAP.Checkcode == "" {
+		c.EAP.Checkcode = "auto"
+	}
+	if c.IdentityStore.Mode == "" {
+		c.IdentityStore.Mode = "memory"
+	}
 	if c.MPPE.Mapping == "" {
 		c.MPPE.Mapping = "rfc5216"
 	}
@@ -225,6 +241,18 @@ func (c Config) Validate() error {
 	}
 	if err := validateMethods("config: eap.nak.on", c.EAP.Nak.On); err != nil {
 		return err
+	}
+	if !isOneOf(c.EAP.Checkcode, "auto", "always", "never") {
+		return fmt.Errorf("config: eap.checkcode must be auto, always, or never")
+	}
+	switch c.IdentityStore.Mode {
+	case "memory":
+	case "file":
+		if strings.TrimSpace(c.IdentityStore.Path) == "" {
+			return fmt.Errorf("config: identity_store.path is required for file mode")
+		}
+	default:
+		return fmt.Errorf("config: identity_store.mode must be memory or file")
 	}
 	if !isOneOf(c.MPPE.Mapping, "rfc5216", "swapped") {
 		return fmt.Errorf("config: mppe.mapping must be rfc5216 or swapped")

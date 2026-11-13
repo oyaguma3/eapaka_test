@@ -126,6 +126,14 @@ func (m *Method) handleChallenge(req *eapaka.Packet, raw []byte, sess *eap.Sessi
 		}
 	}
 
+	ccValue, ccInclude, ccResp, err := m.checkcode(req, sess)
+	if ccResp != nil || err != nil {
+		return ccResp, err
+	}
+	if resp, done, err := m.processEncrData(req, keys.kEncr, sess); done || err != nil {
+		return resp, err
+	}
+
 	action := m.faultAt(FaultAtChallengeResponse, sess)
 	if resp, ok, err := m.replaceByFault(action, req); ok {
 		return resp, err
@@ -140,6 +148,9 @@ func (m *Method) handleChallenge(req *eapaka.Packet, raw []byte, sess *eap.Sessi
 	useResultInd := m.resultInd && hasAttr[*eapaka.AtResultInd](req)
 	if useResultInd {
 		attrs = append(attrs, &eapaka.AtResultInd{})
+	}
+	if ccInclude {
+		attrs = append(attrs, &eapaka.AtCheckcode{Checkcode: ccValue})
 	}
 	attrs = append(attrs, mac)
 	resp := &eapaka.Packet{

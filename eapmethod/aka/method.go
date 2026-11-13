@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/oyaguma3/eapaka_test/eap"
+	"github.com/oyaguma3/eapaka_test/idstore"
 	"github.com/oyaguma3/eapaka_test/sqnstore"
 
 	eapaka "github.com/oyaguma3/go-eapaka"
@@ -37,6 +38,12 @@ type Options struct {
 
 	// Faults は注入する異常（X4）。
 	Faults []Fault
+
+	// IDStore は識別子ストア（AT_IV の履歴。仮名の保存は app が行う）。nil なら履歴を調べない。
+	IDStore idstore.Store
+	// Checkcode は応答に AT_CHECKCODE を入れるか。"auto"（既定。サーバが送ってきたときだけ）、
+	// "always"、"never"（X6）。
+	Checkcode string
 
 	// ResultInd は、サーバが AT_RESULT_IND を送ってきたときに応答にも入れるか（RFC 4187 §6.2）。
 	// nil なら入れる。
@@ -69,6 +76,8 @@ type Method struct {
 	faults        []Fault
 	biddingPolicy string
 	resultInd     bool
+	idstore       idstore.Store
+	checkcodeMode string
 
 	s akaSession
 }
@@ -111,6 +120,8 @@ func New(opts Options) (*Method, error) {
 		faults:        slices.Clone(opts.Faults),
 		biddingPolicy: cmp.Or(opts.BiddingPolicy, "reject"),
 		resultInd:     opts.ResultInd == nil || *opts.ResultInd,
+		idstore:       opts.IDStore,
+		checkcodeMode: cmp.Or(opts.Checkcode, "auto"),
 	}
 	return method, nil
 }
@@ -184,7 +195,7 @@ func (m *Method) handle(req eap.Packet, raw []byte, sess *eap.Session) (*eap.Pac
 
 	switch akaReq.Subtype {
 	case eapaka.SubtypeIdentity:
-		return m.handleIdentity(akaReq, sess)
+		return m.handleIdentity(akaReq, raw, sess)
 	case eapaka.SubtypeChallenge:
 		return m.handleChallenge(akaReq, raw, sess)
 	case eapaka.SubtypeNotification:

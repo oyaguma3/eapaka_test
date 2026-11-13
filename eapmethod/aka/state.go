@@ -27,6 +27,9 @@ type akaSession struct {
 
 	keys sessionKeys // 直近のフル認証で導出した鍵
 
+	identityMsgs       [][]byte // AKA-Identity の Request / Response（送受信したままの形。AT_CHECKCODE 用）
+	permanentRequested bool     // AT_PERMANENT_ID_REQ を受けた（規則 A-01）
+
 	resultInd     bool // AT_RESULT_IND をサーバとピアの両方が使った
 	notifications int  // 受け取った AKA-Notification の数
 	peerError     bool // Client-Error か Authentication-Reject を送った

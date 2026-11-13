@@ -44,26 +44,35 @@ type Rule struct {
 	Ref   string
 	Level Level
 	Desc  string
+	// Default は、レベルごとの既定値の代わりに使う既定の扱い（推定による判定の規則など）。空ならレベルに従う。
+	Default Action
 }
 
 // rules は規則の一覧（設計書 §6.1 の表）。Phase ごとに追加する。
 var rules = map[string]Rule{
-	"R-01":  {"R-01", "RFC 3579 §3.2", MUST, "Message-Authenticator in a response must be valid"},
-	"R-02":  {"R-02", "RFC 3579 §3.1", SHOULD, "a response carrying EAP-Message should include Message-Authenticator"},
-	"R-03a": {"R-03a", "RFC 3579 §2.6.3", SHOULD, "Access-Accept should carry EAP-Success and Access-Reject EAP-Failure"},
-	"R-03b": {"R-03b", "RFC 3579 §2.1", MUST, "Access-Challenge must carry an EAP-Request"},
-	"R-04":  {"R-04", "RFC 3748 §4.2", MUST, "EAP-Success/Failure Identifier must match the last EAP-Response"},
-	"R-05":  {"R-05", "RFC 3748 §4.2, RFC 4187 §6.2", MUST, "no success indication before the method completes or after it failed"},
-	"R-06":  {"R-06", "RFC 3748 §2.1", MUST, "the server must not switch EAP methods during a method"},
-	"R-07":  {"R-07", "RFC 2548 §2.4.2", MUST, "MS-MPPE key Salt must have the MSB set and be unique within an Access-Accept"},
-	"A-08":  {"A-08", "RFC 4187 §6.1, §6.2", MUST, "AKA-Notification: S=0 when P=1, P=0 only after successful authentication, one round per exchange, success only with AT_RESULT_IND"},
-	"A-09":  {"A-09", "RFC 9048 §4", MUST, "AT_BIDDING must not be included in EAP-AKA' messages"},
-	"A-10":  {"A-10", "RFC 4187 §6.3.1", MUST, "after the peer's Client-Error or Authentication-Reject the server must send EAP-Failure"},
-	"A-12":  {"A-12", "RFC 9048 §3.3", MUST, "the AMF separation bit in EAP-AKA' AUTN must be 1"},
-	"A-13":  {"A-13", "RFC 9048 §3.1", MUST, "AT_KDF_INPUT must be present with a non-empty network name"},
-	"A-16":  {"A-16", "RFC 4187 §6.3.1, §8.1", MUST, "EAP-AKA/AKA' requests must be well-formed (known subtype, no unknown non-skippable attribute, required attributes present)"},
-	"A-17":  {"A-17", "RFC 9048 §3.2", MUST, "an AT_KDF re-offer must prepend the selected KDF to the original offer"},
-	"A-18":  {"A-18", "RFC 4187 §10.15", MUST, "AT_MAC in a request must be present and valid"},
+	"R-01":  {ID: "R-01", Ref: "RFC 3579 §3.2", Level: MUST, Desc: "Message-Authenticator in a response must be valid"},
+	"R-02":  {ID: "R-02", Ref: "RFC 3579 §3.1", Level: SHOULD, Desc: "a response carrying EAP-Message should include Message-Authenticator"},
+	"R-03a": {ID: "R-03a", Ref: "RFC 3579 §2.6.3", Level: SHOULD, Desc: "Access-Accept should carry EAP-Success and Access-Reject EAP-Failure"},
+	"R-03b": {ID: "R-03b", Ref: "RFC 3579 §2.1", Level: MUST, Desc: "Access-Challenge must carry an EAP-Request"},
+	"R-04":  {ID: "R-04", Ref: "RFC 3748 §4.2", Level: MUST, Desc: "EAP-Success/Failure Identifier must match the last EAP-Response"},
+	"R-05":  {ID: "R-05", Ref: "RFC 3748 §4.2, RFC 4187 §6.2", Level: MUST, Desc: "no success indication before the method completes or after it failed"},
+	"R-06":  {ID: "R-06", Ref: "RFC 3748 §2.1", Level: MUST, Desc: "the server must not switch EAP methods during a method"},
+	"R-07":  {ID: "R-07", Ref: "RFC 2548 §2.4.2", Level: MUST, Desc: "MS-MPPE key Salt must have the MSB set and be unique within an Access-Accept"},
+	"A-01":  {ID: "A-01", Ref: "RFC 4187 §4.1.5, §9.1", Level: MUST, Desc: "at most 3 AKA-Identity rounds, AT_ANY_ID_REQ only in the first, no identity request after AT_PERMANENT_ID_REQ"},
+	"A-02":  {ID: "A-02", Ref: "RFC 4187 §10.12", Level: MUST, Desc: "AT_IV must not be reused"},
+	"A-05":  {ID: "A-05", Ref: "RFC 4187 §10.12", Level: MUST, Desc: "AT_ENCR_DATA must be a multiple of 16 bytes and AT_PADDING must be zero-filled and last"},
+	"A-06":  {ID: "A-06", Ref: "RFC 4187 §10.10, §10.11", Level: MUST, Desc: "AT_NEXT_PSEUDONYM has no realm, and AT_NEXT_PSEUDONYM / AT_NEXT_REAUTH_ID are only sent encrypted"},
+	"A-07":  {ID: "A-07", Ref: "RFC 4187 §10.14", Level: MUST, Desc: "AT_RESULT_IND must not be included in AT_ENCR_DATA"},
+	"A-08":  {ID: "A-08", Ref: "RFC 4187 §6.1, §6.2", Level: MUST, Desc: "AKA-Notification: S=0 when P=1, P=0 only after successful authentication, one round per exchange, success only with AT_RESULT_IND"},
+	"A-09":  {ID: "A-09", Ref: "RFC 9048 §4", Level: MUST, Desc: "AT_BIDDING must not be included in EAP-AKA' messages"},
+	"A-10":  {ID: "A-10", Ref: "RFC 4187 §6.3.1", Level: MUST, Desc: "after the peer's Client-Error or Authentication-Reject the server must send EAP-Failure"},
+	"A-12":  {ID: "A-12", Ref: "RFC 9048 §3.3", Level: MUST, Desc: "the AMF separation bit in EAP-AKA' AUTN must be 1"},
+	"A-13":  {ID: "A-13", Ref: "RFC 9048 §3.1", Level: MUST, Desc: "AT_KDF_INPUT must be present with a non-empty network name"},
+	"A-14":  {ID: "A-14", Ref: "RFC 9048 §5.2", Level: MUST, Default: ActionWarn, Desc: "EAP-AKA' pseudonyms must not reveal the IMSI (heuristic, warn by default)"},
+	"A-16":  {ID: "A-16", Ref: "RFC 4187 §6.3.1, §8.1", Level: MUST, Desc: "EAP-AKA/AKA' requests must be well-formed (known subtype, no unknown non-skippable attribute, required attributes present)"},
+	"A-17":  {ID: "A-17", Ref: "RFC 9048 §3.2", Level: MUST, Desc: "an AT_KDF re-offer must prepend the selected KDF to the original offer"},
+	"A-18":  {ID: "A-18", Ref: "RFC 4187 §10.15", Level: MUST, Desc: "AT_MAC in a request must be present and valid"},
+	"A-19":  {ID: "A-19", Ref: "RFC 4187 §10.13, RFC 9048 §3.4.3", Level: MUST, Desc: "AT_CHECKCODE must match the AKA-Identity messages exchanged"},
 }
 
 // Lookup は ID の規則を返す。
@@ -93,6 +102,9 @@ func DefaultPolicy() Policy {
 func (p Policy) ActionFor(r Rule) Action {
 	if a, ok := p.Rules[r.ID]; ok {
 		return a
+	}
+	if r.Default != "" {
+		return r.Default
 	}
 	if r.Level == MUST {
 		return p.DefaultMust

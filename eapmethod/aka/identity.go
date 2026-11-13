@@ -1,6 +1,7 @@
 package aka
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 
@@ -9,7 +10,48 @@ import (
 	eapaka "github.com/oyaguma3/go-eapaka"
 )
 
-func (m *Method) handleIdentity(req *eapaka.Packet, sess *eap.Session) (*eap.Packet, error) {
+// handleIdentity は EAP-Request/AKA-Identity を処理する。要求の種類を記録して規則 A-01 を調べ、
+// AT_CHECKCODE のために Request / Response を送受信したままの形で残す。
+func (m *Method) handleIdentity(req *eapaka.Packet, raw []byte, sess *eap.Session) (*eap.Packet, error) {
+	kind := identityRequestKind(req)
+	sess.Obs.IdentityRequests = append(sess.Obs.IdentityRequests, kind)
+	rec := sess.Conformance
+	switch {
+	case m.s.permanentRequested:
+		rec.Report("A-01", "AKA-Identity (%s) after AT_PERMANENT_ID_REQ", kind)
+	case m.s.identityRounds >= 3:
+		rec.Report("A-01", "more than 3 AKA-Identity rounds")
+	case kind == "any" && m.s.identityRounds > 0:
+		rec.Report("A-01", "AT_ANY_ID_REQ in AKA-Identity round %d (only the first round may use it)", m.s.identityRounds+1)
+	}
+	if kind == "permanent" {
+		m.s.permanentRequested = true
+	}
+	resp, err := m.identityResponse(req, sess)
+	if err == nil && resp != nil && len(resp.TypeData) > 0 && resp.TypeData[0] == eapaka.SubtypeIdentity {
+		if b, encErr := resp.Encode(); encErr == nil {
+			m.s.identityMsgs = append(m.s.identityMsgs, bytes.Clone(raw), b)
+		}
+	}
+	return resp, err
+}
+
+// identityRequestKind は AKA-Identity の要求の種類を返す。
+func identityRequestKind(req *eapaka.Packet) string {
+	for _, a := range req.Attributes {
+		switch a.(type) {
+		case *eapaka.AtPermanentIdReq:
+			return "permanent"
+		case *eapaka.AtFullauthIdReq:
+			return "fullauth"
+		case *eapaka.AtAnyIdReq:
+			return "any"
+		}
+	}
+	return "none"
+}
+
+func (m *Method) identityResponse(req *eapaka.Packet, sess *eap.Session) (*eap.Packet, error) {
 	m.s.identityRounds++
 	m.s.phase = phaseIdentity
 	if resp, ok, err := m.replaceByFault(m.faultAt(FaultAtIdentityResponse, sess), req); ok {

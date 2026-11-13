@@ -20,6 +20,9 @@ type Session struct {
 	// OnWarn は、違反ではないが知らせたい事柄（設定値との不一致など）を受け取る。
 	OnWarn func(msg string)
 
+	// Pending は、Access-Accept を受けたら識別子ストアに保存する値（受け取った仮名など）。
+	Pending PendingIDs
+
 	// MSK は、メソッドが最後に導出した MSK（64 バイト）。MS-MPPE 鍵との照合（X2）に使う。
 	// ログやトレースには出さない。
 	MSK []byte
@@ -78,6 +81,13 @@ type Observations struct {
 	PeerError bool
 	// EAPNotifications は、RFC 3748 の Notification（Type 2）で受け取った表示用のメッセージ。
 	EAPNotifications []string
+	// IdentityRequests は、受け取った AKA-Identity の要求の種類（any / fullauth / permanent / none）。
+	IdentityRequests []string
+	// NextPseudonym と NextReauthID は、AT_ENCR_DATA で次回の仮名・再認証 ID を受け取ったか。
+	NextPseudonym bool
+	NextReauthID  bool
+	// Checkcode は AT_CHECKCODE の検証結果（"verified"、"mismatch"、受け取らなければ ""）。
+	Checkcode string
 }
 
 // NotificationObs は AKA-Notification の記録。Code は S・P ビットを含む 16 bit の値。
@@ -258,4 +268,10 @@ func (p *Peer) nakFor(t uint8) ([]uint8, bool) {
 		proposed = []uint8{0}
 	}
 	return proposed, true
+}
+
+// PendingIDs は、認証が成功したら保存する識別子（設計書 §4.1 のコミットの規則）。
+type PendingIDs struct {
+	Method    uint8  // 発行したメソッドの EAP タイプ
+	Pseudonym string // AT_NEXT_PSEUDONYM（レルムなし）。空なら受け取っていない
 }

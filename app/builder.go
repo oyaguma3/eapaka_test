@@ -7,12 +7,18 @@ import (
 	"github.com/oyaguma3/eapaka_test/config"
 	"github.com/oyaguma3/eapaka_test/eap"
 	"github.com/oyaguma3/eapaka_test/eapmethod/aka"
+	"github.com/oyaguma3/eapaka_test/idstore"
 	"github.com/oyaguma3/eapaka_test/sqnstore"
 	"github.com/oyaguma3/eapaka_test/testcase"
 )
 
 // BuildPeer constructs the EAP peer and AKA/AKA' methods from config/testcase.
 func BuildPeer(cfg config.Config, tc testcase.Case, store sqnstore.Store) (*eap.Peer, error) {
+	return buildPeer(cfg, tc, store, nil)
+}
+
+// buildPeer は、識別子ストアも渡して EAP ピアを作る。
+func buildPeer(cfg config.Config, tc testcase.Case, store sqnstore.Store, ids idstore.Store) (*eap.Peer, error) {
 	merged := config.ApplyTestcase(cfg, tc)
 	ki, err := decodeHex("ki", merged.SIM.KI, 16)
 	if err != nil {
@@ -53,6 +59,8 @@ func BuildPeer(cfg config.Config, tc testcase.Case, store sqnstore.Store) (*eap.
 		Faults:                            faults,
 		BiddingPolicy:                     merged.EAP.BiddingPolicy,
 		ResultInd:                         merged.EAP.ResultInd,
+		IDStore:                           ids,
+		Checkcode:                         merged.EAP.Checkcode,
 	})
 	if err != nil {
 		return nil, err
@@ -75,6 +83,8 @@ func BuildPeer(cfg config.Config, tc testcase.Case, store sqnstore.Store) (*eap.
 		Faults:                            faults,
 		BiddingPolicy:                     merged.EAP.BiddingPolicy,
 		ResultInd:                         merged.EAP.ResultInd,
+		IDStore:                           ids,
+		Checkcode:                         merged.EAP.Checkcode,
 	})
 	if err != nil {
 		return nil, err

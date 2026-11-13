@@ -8,6 +8,8 @@ package fakeserver
 import (
 	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/md5"
 	"crypto/rand"
@@ -16,6 +18,7 @@ import (
 	"fmt"
 	"net"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -59,6 +62,13 @@ type Config struct {
 	FailureNotification bool
 	// EAPNotification が空でなければ、最初の要求の前に RFC 3748 の Notification（Type 2）を送る。
 	EAPNotification string
+	// IssuePseudonym が空でなければ、Challenge の AT_ENCR_DATA で次回の仮名として発行する。
+	IssuePseudonym string
+	// KnownPseudonyms は ID として受け付ける仮名（ユーザー名部分）。先頭が 2 か 7 の知らない ID には、
+	// AT_PERMANENT_ID_REQ で永続 ID を求める（RFC 4187 §4.1.7）。
+	KnownPseudonyms []string
+	// Checkcode が true なら、Challenge に AT_CHECKCODE を入れる。
+	Checkcode bool
 
 	Faults Faults
 }
@@ -97,7 +107,15 @@ type Faults struct {
 	AcceptWithoutSuccessNotification bool // R-05: AT_RESULT_IND を使っていても成功通知を送らずに Accept を返す
 	AcceptAfterFailureNotification   bool // R-05: 失敗通知の後に Accept を返す
 	RequestAfterPeerError            bool // A-10: ピアの Client-Error / Authentication-Reject の後に Challenge を送る
-	IgnoreResponseResult             bool // ピアの応答の RES と MAC を確かめずに成功させる
+
+	// 仮名と AT_ENCR_DATA（RFC 4187 §4.1・§10.12）
+	AnyIDTwice           bool // A-01: AT_ANY_ID_REQ を 2 回送る
+	FixedIV              bool // A-02: AT_IV を固定値にする
+	NonZeroPadding       bool // A-05: AT_PADDING を 0 以外で埋める
+	PlainNextPseudonym   bool // A-06: AT_NEXT_PSEUDONYM を暗号化せずに送る
+	ResultIndInEncr      bool // A-07: AT_RESULT_IND を AT_ENCR_DATA の中に入れる
+	WrongCheckcode       bool // A-19: AT_CHECKCODE を壊す
+	IgnoreResponseResult bool // ピアの応答の RES と MAC を確かめずに成功させる
 }
 
 // Event は疑似サーバが受け取った EAP-Response の記録。
@@ -128,6 +146,10 @@ type session struct {
 	xres     []byte
 	kdfOffer []uint16
 	switched bool
+
+	kEncr        []byte
+	identityMsgs [][]byte // AKA-Identity の Request / Response（AT_CHECKCODE 用）
+	idRounds     int
 
 	stage     string // "eap-notify"、"success-notify"、"failure-notify"（応答を待っている通知）
 	notifies  int    // 送った成功通知の数
@@ -258,10 +280,14 @@ func (s *Server) handle(req *radius.Packet) reply {
 	}
 	switch akaPkt.Subtype {
 	case eapaka.SubtypeIdentity:
+		sess.identityMsgs = append(sess.identityMsgs, bytes.Clone(raw))
 		for _, a := range akaPkt.Attributes {
 			if id, ok := a.(*eapaka.AtIdentity); ok {
 				sess.identity = id.Identity
 			}
+		}
+		if s.cfg.Faults.AnyIDTwice && sess.idRounds == 1 {
+			return s.identityRequest(sess, state, "any")
 		}
 		return s.challenge(sess, state, nil)
 	case eapaka.SubtypeChallenge:
@@ -318,9 +344,27 @@ func (s *Server) startSession(pkt eap.Packet) reply {
 
 // firstRequest は、AKA-Identity の要求か、最初の Challenge を送る。
 func (s *Server) firstRequest(sess *session, state []byte) reply {
-	if s.cfg.IdentityRequest != "" {
+	kind := s.cfg.IdentityRequest
+	if user, _, _ := strings.Cut(sess.identity, "@"); (strings.HasPrefix(user, "2") || strings.HasPrefix(user, "7")) &&
+		!slices.Contains(s.cfg.KnownPseudonyms, user) {
+		kind = "permanent"
+	}
+	if kind != "" {
+		return s.identityRequest(sess, state, kind)
+	}
+	rep := s.challenge(sess, state, nil)
+	if s.cfg.Faults.ChallengeWithoutEAP {
+		rep.eap = nil
+	}
+	return rep
+}
+
+// identityRequest は AKA-Identity の要求を送り、AT_CHECKCODE のために記録する。
+func (s *Server) identityRequest(sess *session, state []byte, kind string) reply {
+	sess.idRounds++
+	{
 		var attr eapaka.Attribute
-		switch s.cfg.IdentityRequest {
+		switch kind {
 		case "permanent":
 			attr = &eapaka.AtPermanentIdReq{}
 		case "fullauth":
@@ -336,13 +380,9 @@ func (s *Server) firstRequest(sess *session, state []byte) reply {
 		if err != nil {
 			panic(err)
 		}
+		sess.identityMsgs = append(sess.identityMsgs, b)
 		return reply{code: radius.CodeAccessChallenge, eap: b, state: state}
 	}
-	rep := s.challenge(sess, state, nil)
-	if s.cfg.Faults.ChallengeWithoutEAP {
-		rep.eap = nil
-	}
-	return rep
 }
 
 func (s *Server) challengeResponse(sess *session, state, raw []byte, resp *eapaka.Packet) reply {
@@ -475,7 +515,7 @@ func (s *Server) challenge(sess *session, state []byte, kdfAttrs []eapaka.Attrib
 			panic(err)
 		}
 		keys := eapaka.DeriveKeysAKAPrime(sess.identity, ckp, ikp)
-		sess.kAut, sess.msk = keys.K_aut, keys.MSK
+		sess.kAut, sess.msk, sess.kEncr = keys.K_aut, keys.MSK, keys.K_encr
 		if f.EmptyKdfInput {
 			// go-eapaka は空のネットワーク名を組み立てないので、値（長さ 0）を直接入れる
 			attrs = append(attrs, &eapaka.GenericAttribute{AttrType: eapaka.AT_KDF_INPUT, Data: []byte{0, 0}})
@@ -492,7 +532,7 @@ func (s *Server) challenge(sess *session, state []byte, kdfAttrs []eapaka.Attrib
 		attrs = append(attrs, kdfAttrs...)
 	} else {
 		keys := eapaka.DeriveKeysAKA(sess.identity, ck, ik)
-		sess.kAut, sess.msk = keys.K_aut, keys.MSK
+		sess.kAut, sess.msk, sess.kEncr = keys.K_aut, keys.MSK, keys.K_encr
 	}
 	if sess.method == eapaka.TypeAKA && s.cfg.Bidding != "" {
 		b := &eapaka.AtBidding{}
@@ -505,6 +545,17 @@ func (s *Server) challenge(sess *session, state []byte, kdfAttrs []eapaka.Attrib
 	}
 	if s.cfg.ResultInd {
 		attrs = append(attrs, &eapaka.AtResultInd{})
+	}
+	attrs = append(attrs, s.encrAttrs(sess)...)
+	if s.cfg.Checkcode {
+		cc, err := eapaka.ComputeCheckcode(sess.method, sess.identityMsgs...)
+		if err != nil {
+			panic(err)
+		}
+		if f.WrongCheckcode {
+			cc = bytes.Repeat([]byte{0xee}, map[bool]int{true: 32, false: 20}[sess.method == eapaka.TypeAKAPrime])
+		}
+		attrs = append(attrs, &eapaka.AtCheckcode{Checkcode: cc})
 	}
 	if f.UnknownNonSkippable {
 		attrs = append(attrs, &eapaka.GenericAttribute{AttrType: 100, Data: []byte{0, 0}})
@@ -667,4 +718,69 @@ func retype(b []byte, from, to eapaka.AttributeType) {
 			b[off] = byte(to)
 		}
 	}
+}
+
+// encrAttrs は、次回の仮名などを入れた AT_IV と AT_ENCR_DATA を返す（RFC 4187 §10.12）。
+func (s *Server) encrAttrs(sess *session) []eapaka.Attribute {
+	f := s.cfg.Faults
+	var plain, inner []eapaka.Attribute
+	if s.cfg.IssuePseudonym != "" {
+		next := &eapaka.AtNextPseudonym{Pseudonym: s.cfg.IssuePseudonym}
+		if f.PlainNextPseudonym {
+			plain = append(plain, next)
+		} else {
+			inner = append(inner, next)
+		}
+	}
+	if f.ResultIndInEncr {
+		inner = append(inner, &eapaka.AtResultInd{})
+	}
+	if len(inner) == 0 {
+		return plain
+	}
+	iv := eapaka.NewIV()
+	if f.FixedIV {
+		iv = bytes.Repeat([]byte{0x42}, 16)
+	}
+	var enc []byte
+	var err error
+	if f.NonZeroPadding {
+		enc, err = encryptWithBadPadding(sess.kEncr, iv, inner)
+	} else {
+		enc, err = eapaka.EncryptAttributes(sess.kEncr, iv, inner)
+	}
+	if err != nil {
+		panic(err)
+	}
+	return append(plain, &eapaka.AtIv{IV: iv}, &eapaka.AtEncrData{EncryptedData: enc})
+}
+
+// encryptWithBadPadding は、AT_PADDING を 0 以外で埋めて暗号化する（A-05 の違反の注入）。
+// go-eapaka は正しいパディングしか作らないので、ここで組み立てる。
+func encryptWithBadPadding(kEncr, iv []byte, attrs []eapaka.Attribute) ([]byte, error) {
+	var plain []byte
+	for _, a := range attrs {
+		b, err := a.Marshal()
+		if err != nil {
+			return nil, err
+		}
+		plain = append(plain, b...)
+	}
+	pad := (aes.BlockSize - len(plain)%aes.BlockSize) % aes.BlockSize
+	if pad == 0 {
+		return nil, fmt.Errorf("fakeserver: the attributes need no padding; choose another pseudonym length")
+	}
+	padding := make([]byte, pad)
+	padding[0], padding[1] = byte(eapaka.AT_PADDING), byte(pad/4)
+	for i := 2; i < pad; i++ {
+		padding[i] = 0x5a
+	}
+	plain = append(plain, padding...)
+	block, err := aes.NewCipher(kEncr)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, len(plain))
+	cipher.NewCBCEncrypter(block, iv).CryptBlocks(out, plain)
+	return out, nil
 }

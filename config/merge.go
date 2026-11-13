@@ -54,6 +54,9 @@ func ApplyTestcase(base Config, tc testcase.Case) Config {
 	if len(tc.EAP.Nak.On) > 0 {
 		out.EAP.Nak = NakConfig{On: tc.EAP.Nak.On, Propose: tc.EAP.Nak.Propose}
 	}
+	if tc.EAP.Checkcode != "" {
+		out.EAP.Checkcode = tc.EAP.Checkcode
+	}
 	if tc.EAP.ResultInd != nil {
 		out.EAP.ResultInd = tc.EAP.ResultInd
 	}

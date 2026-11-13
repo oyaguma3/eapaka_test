@@ -14,6 +14,7 @@ import (
 	"github.com/oyaguma3/eapaka_test/config"
 	"github.com/oyaguma3/eapaka_test/conformance"
 	"github.com/oyaguma3/eapaka_test/eap"
+	"github.com/oyaguma3/eapaka_test/idstore"
 	"github.com/oyaguma3/eapaka_test/radiusc"
 	"github.com/oyaguma3/eapaka_test/sqnstore"
 	"github.com/oyaguma3/eapaka_test/testcase"
@@ -65,13 +66,13 @@ func Run(ctx context.Context, cfg config.Config, tc testcase.Case) Result {
 	rec.OnReport = logger.LogViolation
 
 	var res Result
-	peer, err := setupPeer(cfg, tc)
+	peer, ids, err := setupPeer(cfg, tc)
 	if err != nil {
 		res.ExitCode, res.Err = wrap(2, err, "setup")
 	} else {
 		peer.Session.Conformance = rec
 		peer.Session.OnWarn = logger.LogWarn
-		res.ExitCode, res.Err = exchange(ctx, merged, tc, peer, rec, logger)
+		res.ExitCode, res.Err = exchange(ctx, merged, tc, peer, ids, rec, logger)
 		res.Obs = peer.Session.Obs
 	}
 	res.Violations = rec.Violations()
@@ -83,29 +84,41 @@ func Run(ctx context.Context, cfg config.Config, tc testcase.Case) Result {
 }
 
 // setupPeer は SQN ストアと EAP ピアを用意する。
-func setupPeer(cfg config.Config, tc testcase.Case) (*eap.Peer, error) {
+func setupPeer(cfg config.Config, tc testcase.Case) (*eap.Peer, idstore.Store, error) {
 	merged := config.ApplyTestcase(cfg, tc)
 	store, err := buildStore(merged, tc)
 	if err != nil {
-		return nil, fmt.Errorf("build store: %w", err)
+		return nil, nil, fmt.Errorf("build store: %w", err)
 	}
 	if tc.SQN.Reset {
 		if err := store.Reset(merged.SIM.IMSI); err != nil {
-			return nil, fmt.Errorf("sqn reset: %w", err)
+			return nil, nil, fmt.Errorf("sqn reset: %w", err)
 		}
 	}
-	peer, err := BuildPeer(cfg, tc, store)
+	ids, err := buildIDStore(merged)
 	if err != nil {
-		return nil, fmt.Errorf("build peer: %w", err)
+		return nil, nil, err
+	}
+	if tc.IdentityStore.Reset {
+		if err := ids.Reset(merged.SIM.IMSI); err != nil {
+			return nil, nil, fmt.Errorf("identity store reset: %w", err)
+		}
+	}
+	if tc.Identity, err = selectIdentity(tc, merged, ids); err != nil {
+		return nil, nil, err
+	}
+	peer, err := buildPeer(cfg, tc, store, ids)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build peer: %w", err)
 	}
 	if peer.Session == nil || peer.Session.OuterIdentity == "" {
-		return nil, errors.New("outer identity is required")
+		return nil, nil, errors.New("outer identity is required")
 	}
-	return peer, nil
+	return peer, ids, nil
 }
 
 // exchange は RADIUS で EAP をやりとりし、最後の応答を期待結果と比べる。
-func exchange(ctx context.Context, merged config.Config, tc testcase.Case, peer *eap.Peer, rec *conformance.Recorder, logger *trace.Logger) (int, error) {
+func exchange(ctx context.Context, merged config.Config, tc testcase.Case, peer *eap.Peer, ids idstore.Store, rec *conformance.Recorder, logger *trace.Logger) (int, error) {
 	attrs := radiusc.Attributes{
 		NASIPAddress:     merged.RadiusAttrs.NASIPAddress,
 		NASIdentifier:    merged.RadiusAttrs.NASIdentifier,
@@ -172,31 +185,17 @@ func exchange(ctx context.Context, merged config.Config, tc testcase.Case, peer 
 			}
 		case radius.CodeAccessAccept:
 			verifyMSK(peer.Session, resp, merged.Radius.Secret, merged.MPPE.Mapping)
+			commitPending(peer.Session, ids, merged.SIM.IMSI, tc, logger)
 			if logger != nil {
 				logger.LogMPPE(resp.MPPE)
 				logger.LogMSK(peer.Session.Obs)
 			}
-			if code, err := evaluateExpect(tc, resp, true); code != 0 || err != nil {
-				return code, err
-			}
-			if code, err := evaluateMSK(tc, peer.Session.Obs); code != 0 || err != nil {
-				return code, err
-			}
-			if code, err := evaluateBidding(tc, peer.Session.Obs); code != 0 || err != nil {
-				return code, err
-			}
-			return evaluateNotification(tc, peer.Session.Obs)
+			return evaluate(tc, resp, true, peer.Session.Obs)
 		case radius.CodeAccessReject:
 			if logger != nil {
 				logger.LogMPPE(resp.MPPE)
 			}
-			if code, err := evaluateExpect(tc, resp, false); code != 0 || err != nil {
-				return code, err
-			}
-			if code, err := evaluateBidding(tc, peer.Session.Obs); code != 0 || err != nil {
-				return code, err
-			}
-			return evaluateNotification(tc, peer.Session.Obs)
+			return evaluate(tc, resp, false, peer.Session.Obs)
 		default:
 			return fail(2, "unexpected RADIUS code %d", resp.Code)
 		}

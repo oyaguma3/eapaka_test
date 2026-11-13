@@ -15,6 +15,13 @@ type Case struct {
 	Description string `yaml:"description"`
 
 	Identity string `yaml:"identity"`
+	// IdentitySource は開始時の ID の選び方（設計書 §5.3）。literal（既定。identity をそのまま使う）、
+	// permanent（IMSI とレルムから作る）、pseudonym（保存済みの仮名）、auto（仮名 → 永続 ID）。
+	IdentitySource string `yaml:"identity_source"`
+	// Method は、identity_source が literal 以外のときに使う ID のメソッド（aka / aka_prime。既定 aka）。
+	Method string `yaml:"method"`
+	// IdentityStore はケース単位の識別子ストアの扱い。
+	IdentityStore IdentityStoreUse `yaml:"identity_store"`
 
 	Radius Radius `yaml:"radius"`
 	EAP    EAP    `yaml:"eap"`
@@ -67,6 +74,15 @@ type EAP struct {
 	Nak                               Nak      `yaml:"nak"`
 	BiddingPolicy                     string   `yaml:"bidding_policy"`
 	ResultInd                         *bool    `yaml:"result_ind"`
+	Checkcode                         string   `yaml:"checkcode"`
+}
+
+// IdentityStoreUse は、ケースでの識別子ストアの扱い。
+type IdentityStoreUse struct {
+	// Reset は、実行の前にこの IMSI の記録を消す。
+	Reset bool `yaml:"reset"`
+	// Persist は、受け取った仮名を保存するか（既定 true）。
+	Persist *bool `yaml:"persist"`
 }
 
 // Nak はケース単位の強制 Nak（X5）。
@@ -93,6 +109,13 @@ type Expect struct {
 	MPPE                    MPPE         `yaml:"mppe"`
 	Bidding                 Bidding      `yaml:"bidding"`
 	Notification            Notification `yaml:"notification"`
+	// NextPseudonym・NextReauthID は、AT_ENCR_DATA で次回の仮名・再認証 ID を受け取るか（present / absent）。
+	NextPseudonym string `yaml:"next_pseudonym"`
+	NextReauthID  string `yaml:"next_reauth_id"`
+	// IdentityRequests は、受け取る AKA-Identity の要求の種類の並び（any / fullauth / permanent / none）。
+	IdentityRequests []string `yaml:"identity_requests"`
+	// Checkcode は AT_CHECKCODE の検証結果（verified / absent）。
+	Checkcode string `yaml:"checkcode"`
 }
 
 // Notification は AKA-Notification の期待値（RFC 4187 §6）。省略した項目は検査しない。
@@ -131,8 +154,28 @@ func (c Case) Validate() error {
 	if c.Version != 1 {
 		return fmt.Errorf("testcase: version must be 1")
 	}
-	if strings.TrimSpace(c.Identity) == "" {
-		return fmt.Errorf("testcase: identity is required")
+	switch c.IdentitySource {
+	case "", "literal":
+		if strings.TrimSpace(c.Identity) == "" {
+			return fmt.Errorf("testcase: identity is required")
+		}
+	case "permanent", "pseudonym", "auto":
+	default:
+		return fmt.Errorf("testcase: identity_source must be literal, permanent, pseudonym, or auto")
+	}
+	if c.Method != "" && !isOneOf(c.Method, "aka", "aka_prime") {
+		return fmt.Errorf("testcase: method must be aka or aka_prime")
+	}
+	if c.EAP.Checkcode != "" && !isOneOf(c.EAP.Checkcode, "auto", "always", "never") {
+		return fmt.Errorf("testcase: eap.checkcode must be auto, always, or never")
+	}
+	for _, v := range []string{c.Expect.NextPseudonym, c.Expect.NextReauthID} {
+		if v != "" && !isOneOf(v, "present", "absent") {
+			return fmt.Errorf("testcase: expect.next_pseudonym and expect.next_reauth_id must be present or absent")
+		}
+	}
+	if c.Expect.Checkcode != "" && !isOneOf(c.Expect.Checkcode, "verified", "absent") {
+		return fmt.Errorf("testcase: expect.checkcode must be verified or absent")
 	}
 	switch c.Expect.Result {
 	case "accept", "reject":
