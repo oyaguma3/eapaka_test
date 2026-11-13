@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -134,7 +135,8 @@ func writeJUnitReport(w io.Writer, runs []CaseRun) error {
 	var total time.Duration
 	for _, r := range runs {
 		total += r.Duration
-		c := junitCase{Name: r.Name, ClassName: "eapaka_test." + strings.TrimSuffix(r.File, ".yaml"), Time: seconds(r.Duration)}
+		// classname はケースのディレクトリ名（例: eapaka_test.hostapd）
+		c := junitCase{Name: r.Name, ClassName: "eapaka_test." + filepath.Base(filepath.Dir(r.File)), Time: seconds(r.Duration)}
 		var lines []string
 		for _, v := range r.Result.Violations {
 			lines = append(lines, fmt.Sprintf("violation id=%s level=%s action=%s ref=%q round=%d detail=%q",

@@ -10,10 +10,22 @@ This document explains how to use `eapaka_test`.
 ./eapaka_test -c <config.yaml> run <case.yaml>
 ```
 
+With several cases or directories, they run one after another in one process. For a directory, its `*.yaml` files run in file name order.
+
+```bash
+./eapaka_test -c <config.yaml> --report junit --report-file report.xml run <dir> <case.yaml>...
+```
+
+- Memory-mode `sqn_store` and `identity_store` are shared between the cases of one run, so a full authentication and re-authentications can be chained without keys on disk.
+- The exit code is the highest of all cases. With more than one case, a `PASS` / `FAIL` / `ERROR` line per case goes to standard error.
+
 ## 2. CLI Options
 
 - `-c <path>`: config file path (required)
-- `run <case>`: test case file path (required)
+- `run <case|dir>...`: test case files or directories (one or more, required)
+- `--report json|junit`: write the results of all cases, including violations; junit is JUnit XML for CI
+- `--report-file <path>`: report output file (default: standard output)
+- `--stop-on-fail`: stop at the first case that does not pass
 - `--unsafe-log`: print sensitive values (RAND/AUTN/RES, etc.) without masking
 - `--trace-eap-hex`: force EAP hex dump in verbose mode
 - `--trace-radius-attrs`: force RADIUS attribute dump in verbose mode
@@ -172,6 +184,7 @@ Main fields:
   - `notification`: expected AKA-Notification: `code` (the full code with the S and P bits; 32768 for success, 16384 for failure before authentication) and `present`
   - `bidding`: expected AT_BIDDING: `present`, `d_bit` and `action` (the peer's action, `reject|ignore`). Omitted fields are not checked
 
+- `repeat`: how many times to run this case in a row (default 1), e.g. to check that AT_COUNTER keeps increasing across re-authentications. Results are named `name#1`, `name#2`, ...
 - `trace.*`: tracing
   - `level`: `normal|verbose`
   - `unsafe_log`: disable masking (not recommended in CI)

@@ -63,6 +63,7 @@ If you need packet capture in WSL, see section 9 in `USER_GUIDE.md`.
   - An AMF different from `sim.amf` is now only a warning. For EAP-AKA', the AMF separation bit is checked instead.
 - Added fault injection (`fault` in testcases).
 - Added MSK verification: `expect.mppe.verify_msk: true` decrypts MS-MPPE-Send/Recv-Key and compares them with the MSK derived by the peer.
+- Added running several cases or directories in one process (with shared memory stores), `repeat`, `--report json|junit` and `--stop-on-fail`, and the Session-Id / Peer-Id trace (RFC 5247, RFC 9048 §6). `interop/hostapd/run_cases.sh` runs all hostapd cases in one command and writes a JUnit report.
 - Added fast re-authentication (RFC 4187 §5, RFC 9048 §3.3) with rules A-03, A-04 and A-11. Re-authentication with EAP-AKA passes MSK verification against hostapd 2.12.
 - Added pseudonym authentication (identity_store, identity_source) and AT_CHECKCODE, with rules A-01, A-02, A-05 to A-07, A-14 and A-19. Verified against hostapd 2.12.
 - Added AKA-Notification, AT_RESULT_IND and RFC 3748 Notification (Type 2), with rules A-08 and A-10. Verified against hostapd 2.12 with result indication enabled.

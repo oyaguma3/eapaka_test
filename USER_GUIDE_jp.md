@@ -10,10 +10,22 @@
 ./eapaka_test -c <config.yaml> run <case.yaml>
 ```
 
+複数のケースやディレクトリを指定すると、1 回の実行で続けて流します。ディレクトリでは、中の `*.yaml` をファイル名の順に流します。
+
+```bash
+./eapaka_test -c <config.yaml> --report junit --report-file report.xml run <dir> <case.yaml>...
+```
+
+- memory モードの `sqn_store` と `identity_store` は、同じ実行のケースの間で共有します。そのため、鍵をディスクに書かずに「フル認証 → 再認証」の連鎖を試せます。
+- 終了コードは全ケースの最大値です。ケースが複数のときは、ケースごとに `PASS` / `FAIL` / `ERROR` の行を標準エラーに出します。
+
 ## 2. CLI オプション
 
 - `-c <path>`: 設定ファイル（必須）
-- `run <case>`: テストケースファイル（必須）
+- `run <case|dir>...`: テストケースファイルかディレクトリ（1 つ以上、必須）
+- `--report json|junit`: 全ケースの結果（違反の一覧を含む）を出力する。junit は CI で読める JUnit XML
+- `--report-file <path>`: レポートの出力先（既定: 標準出力）
+- `--stop-on-fail`: 最初に PASS しなかったケースで止める
 - `--unsafe-log`: 機密情報（RAND/AUTN/RES など）のマスクを解除して出力
 - `--trace-eap-hex`: verbose で EAP hex dump を強制有効
 - `--trace-radius-attrs`: verbose で RADIUS 属性一覧を強制有効
@@ -172,6 +184,7 @@ expect:
   - `notification`: AKA-Notification の期待値。`code`（S・P ビットを含むコード値。32768 は成功、16384 は認証前の失敗）、`present`（受け取ったか）
   - `bidding`: AT_BIDDING の期待値。`present`（受け取ったか）、`d_bit`、`action`（ピアの動作 `reject|ignore`）。省略した項目は検査しない
 
+- `repeat`: このケースを続けて実行する回数（既定 1）。再認証を繰り返して、AT_COUNTER が増え続けるかを確かめるのに使う。結果は `名前#1`、`名前#2` … として出る
 - `trace.*`: トレース
   - `level`: `normal|verbose`
   - `unsafe_log`: 機密情報のマスク解除（CI では非推奨）

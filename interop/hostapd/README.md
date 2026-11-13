@@ -25,7 +25,7 @@ hostap 内蔵の暗号実装を使うので、OpenSSL や libnl は要りませ�
    ./run.sh
    ```
 
-3. `testdata/interop/hostapd/` のケースを実行します。ケースのファイルを引数に指定することもできます。各ケースのトレースは `_build/<ケース名>.log` に出ます。
+3. `testdata/interop/hostapd/` のケースを、1 回の実行でまとめて流します。ケースのファイルを引数に指定することもできます。結果は `_build/report.xml`（JUnit）に、トレースは `_build/trace.log` に出ます。
 
    ```bash
    ./run_cases.sh
