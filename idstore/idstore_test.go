@@ -3,6 +3,7 @@ package idstore
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -77,5 +78,29 @@ func TestHistoryLimit(t *testing.T) {
 	}
 	if e.AddIV([]byte{0}) {
 		t.Error("the oldest IV should have been dropped from the history")
+	}
+}
+
+func TestReauthRoundTrip(t *testing.T) {
+	s := &FileStore{Path: filepath.Join(t.TempDir(), "ids.json")}
+	want := &Reauth{Identity: "4abc@example.org", MK: HexBytes{1, 2, 3}, KEncr: HexBytes{4}, KAut: HexBytes{5}, CounterFloor: 3}
+	if err := s.Put("1", MethodAKA, Entry{Reauth: want}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Get("1", MethodAKA)
+	if err != nil || got.Reauth == nil || got.Reauth.Identity != want.Identity || got.Reauth.CounterFloor != 3 ||
+		string(got.Reauth.MK) != string(want.MK) || got.Reauth.KRe != nil {
+		t.Fatalf("Get = %+v, %v", got.Reauth, err)
+	}
+	b, err := os.ReadFile(s.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"mk":"010203"`) {
+		t.Errorf("keys are not stored as hex: %s", b)
+	}
+	var e Entry
+	if e.AddNonceS([]byte("n")) || !e.AddNonceS([]byte("n")) {
+		t.Error("NONCE_S history does not detect reuse")
 	}
 }

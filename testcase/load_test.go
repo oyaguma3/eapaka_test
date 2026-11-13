@@ -74,7 +74,9 @@ func TestValidateFaults(t *testing.T) {
 		{Fault{At: "challenge_response", Action: "corrupt_mac"}, false},
 		{Fault{At: "identity_response", Action: "client_error"}, false},
 		{Fault{At: "identity_response", Action: "corrupt_mac"}, true},
-		{Fault{At: "reauth_response", Action: "corrupt_mac"}, true},
+		{Fault{At: "reauth_response", Action: "corrupt_mac"}, false},
+		{Fault{At: "reauth_response", Action: "wrong_res"}, true},
+		{Fault{At: "notification_response", Action: "corrupt_mac"}, true},
 	}
 	for _, tt := range tests {
 		c := base

@@ -63,6 +63,27 @@ func (m *Method) handleNotification(req *eapaka.Packet, raw []byte, sess *eap.Se
 		rec.Report("A-18", "AKA-Notification AT_MAC is invalid")
 		return m.clientError(req)
 	}
+	// 再認証の後の通知は、暗号化された AT_COUNTER を持ち、応答にも入れる（§9.10、§9.11）
+	var encrypted []eapaka.Attribute
+	if m.s.reauthed {
+		inner, resp, err := m.decryptReauthAttrs(req, m.s.keys.kEncr, sess)
+		if resp != nil || err != nil {
+			return resp, err
+		}
+		var counter *uint16
+		for _, a := range inner {
+			if c, ok := a.(*eapaka.AtCounter); ok {
+				counter = &c.Counter
+			}
+		}
+		if counter == nil || *counter != m.s.counter {
+			rec.Report("A-04", "AT_COUNTER in the notification after re-authentication does not match %d", m.s.counter)
+			return m.clientError(req)
+		}
+		if encrypted, err = m.encryptedCounter(m.s.keys.kEncr, &eapaka.AtCounter{Counter: m.s.counter}); err != nil {
+			return nil, err
+		}
+	}
 	switch {
 	case n.S && !m.s.resultInd:
 		// 成功通知は、双方が AT_RESULT_IND を使ったときだけ送れる（§6.2）
@@ -74,7 +95,7 @@ func (m *Method) handleNotification(req *eapaka.Packet, raw []byte, sess *eap.Se
 		// 認証後の失敗通知。この後に成功を受け入れてはならない（§6.3.4）
 		m.s.phase = phaseFailed
 	}
-	resp.Attributes = []eapaka.Attribute{&eapaka.AtMac{MAC: make([]byte, 16)}}
+	resp.Attributes = append(encrypted, &eapaka.AtMac{MAC: make([]byte, 16)})
 	if err := resp.CalculateAndSetMac(m.s.keys.kAut); err != nil {
 		return nil, err
 	}

@@ -17,6 +17,7 @@ type Fault struct {
 const (
 	FaultAtIdentityResponse  = "identity_response"
 	FaultAtChallengeResponse = "challenge_response"
+	FaultAtReauthResponse    = "reauth_response"
 )
 
 // 動作
@@ -25,6 +26,9 @@ const (
 	FaultWrongRES    = "wrong_res"    // 誤った AT_RES を正しい MAC で送る
 	FaultClientError = "client_error" // 応答を Client-Error に差し替える
 	FaultAuthReject  = "auth_reject"  // 応答を Authentication-Reject に差し替える
+
+	FaultCounterTooSmall = "counter_too_small" // 再認証の AT_COUNTER を小さすぎるとして断る（RFC 4187 §5.5）
+	FaultWrongCounter    = "wrong_counter"     // 再認証の応答の AT_COUNTER を受信値と変える
 )
 
 // faultAt は注入位置 at に指定された動作を返す（最初に一致したものだけ）。

@@ -14,11 +14,11 @@ import (
 
 // BuildPeer constructs the EAP peer and AKA/AKA' methods from config/testcase.
 func BuildPeer(cfg config.Config, tc testcase.Case, store sqnstore.Store) (*eap.Peer, error) {
-	return buildPeer(cfg, tc, store, nil)
+	return buildPeer(cfg, tc, store, nil, nil)
 }
 
-// buildPeer は、識別子ストアも渡して EAP ピアを作る。
-func buildPeer(cfg config.Config, tc testcase.Case, store sqnstore.Store, ids idstore.Store) (*eap.Peer, error) {
+// buildPeer は、識別子ストアと、使う再認証コンテキストも渡して EAP ピアを作る。
+func buildPeer(cfg config.Config, tc testcase.Case, store sqnstore.Store, ids idstore.Store, reauth *selectedReauth) (*eap.Peer, error) {
 	merged := config.ApplyTestcase(cfg, tc)
 	ki, err := decodeHex("ki", merged.SIM.KI, 16)
 	if err != nil {
@@ -46,6 +46,7 @@ func buildPeer(cfg config.Config, tc testcase.Case, store sqnstore.Store, ids id
 
 	akaMethod, err := aka.New(aka.Options{
 		MethodType:                        eap.TypeAKA,
+		ReauthContext:                     reauth.contextFor(eap.TypeAKA),
 		IMSI:                              merged.SIM.IMSI,
 		KI:                                ki,
 		OPC:                               opc,
@@ -67,6 +68,7 @@ func buildPeer(cfg config.Config, tc testcase.Case, store sqnstore.Store, ids id
 	}
 	akaPrimeMethod, err := aka.New(aka.Options{
 		MethodType:                        eap.TypeAKAPrime,
+		ReauthContext:                     reauth.contextFor(eap.TypeAKAPrime),
 		IMSI:                              merged.SIM.IMSI,
 		KI:                                ki,
 		OPC:                               opc,

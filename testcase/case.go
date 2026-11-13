@@ -43,6 +43,8 @@ type Fault struct {
 var faultActions = map[string][]string{
 	"identity_response":  {"client_error", "auth_reject"},
 	"challenge_response": {"corrupt_mac", "wrong_res", "client_error", "auth_reject"},
+	"reauth_response":    {"corrupt_mac", "wrong_counter", "counter_too_small", "client_error"},
+	"start":              {"reuse_reauth_id"},
 }
 
 // Conformance はケース単位の準拠性ポリシーの上書き（設計書 §7.2）。
@@ -116,6 +118,10 @@ type Expect struct {
 	IdentityRequests []string `yaml:"identity_requests"`
 	// Checkcode は AT_CHECKCODE の検証結果（verified / absent）。
 	Checkcode string `yaml:"checkcode"`
+	// AuthType は行われた認証の種類（full / reauth）。
+	AuthType string `yaml:"auth_type"`
+	// CounterTooSmallSent は、ピアが AT_COUNTER_TOO_SMALL を送ったか。
+	CounterTooSmallSent *bool `yaml:"counter_too_small_sent"`
 }
 
 // Notification は AKA-Notification の期待値（RFC 4187 §6）。省略した項目は検査しない。
@@ -159,9 +165,9 @@ func (c Case) Validate() error {
 		if strings.TrimSpace(c.Identity) == "" {
 			return fmt.Errorf("testcase: identity is required")
 		}
-	case "permanent", "pseudonym", "auto":
+	case "permanent", "pseudonym", "reauth", "auto":
 	default:
-		return fmt.Errorf("testcase: identity_source must be literal, permanent, pseudonym, or auto")
+		return fmt.Errorf("testcase: identity_source must be literal, permanent, pseudonym, reauth, or auto")
 	}
 	if c.Method != "" && !isOneOf(c.Method, "aka", "aka_prime") {
 		return fmt.Errorf("testcase: method must be aka or aka_prime")
@@ -173,6 +179,9 @@ func (c Case) Validate() error {
 		if v != "" && !isOneOf(v, "present", "absent") {
 			return fmt.Errorf("testcase: expect.next_pseudonym and expect.next_reauth_id must be present or absent")
 		}
+	}
+	if c.Expect.AuthType != "" && !isOneOf(c.Expect.AuthType, "full", "reauth") {
+		return fmt.Errorf("testcase: expect.auth_type must be full or reauth")
 	}
 	if c.Expect.Checkcode != "" && !isOneOf(c.Expect.Checkcode, "verified", "absent") {
 		return fmt.Errorf("testcase: expect.checkcode must be verified or absent")
@@ -217,7 +226,7 @@ func (c Case) Validate() error {
 	for i, f := range c.Faults {
 		actions, ok := faultActions[f.At]
 		if !ok {
-			return fmt.Errorf("testcase: fault[%d].at must be identity_response or challenge_response", i)
+			return fmt.Errorf("testcase: fault[%d].at must be start, identity_response, challenge_response, or reauth_response", i)
 		}
 		if !slices.Contains(actions, f.Action) {
 			return fmt.Errorf("testcase: fault[%d].action %q cannot be used at %s (allowed: %s)", i, f.Action, f.At, strings.Join(actions, ", "))

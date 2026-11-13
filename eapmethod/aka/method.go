@@ -41,6 +41,10 @@ type Options struct {
 
 	// IDStore は識別子ストア（AT_IV の履歴。仮名の保存は app が行う）。nil なら履歴を調べない。
 	IDStore idstore.Store
+	// ReauthContext は、このメソッドの再認証コンテキスト（app が識別子ストアから取り出して渡す）。
+	// nil なら再認証の要求に Client-Error を返す。
+	ReauthContext *idstore.Reauth
+
 	// Checkcode は応答に AT_CHECKCODE を入れるか。"auto"（既定。サーバが送ってきたときだけ）、
 	// "always"、"never"（X6）。
 	Checkcode string
@@ -78,6 +82,7 @@ type Method struct {
 	resultInd     bool
 	idstore       idstore.Store
 	checkcodeMode string
+	reauthCtx     *idstore.Reauth
 
 	s akaSession
 }
@@ -122,6 +127,7 @@ func New(opts Options) (*Method, error) {
 		resultInd:     opts.ResultInd == nil || *opts.ResultInd,
 		idstore:       opts.IDStore,
 		checkcodeMode: cmp.Or(opts.Checkcode, "auto"),
+		reauthCtx:     opts.ReauthContext,
 	}
 	return method, nil
 }
@@ -201,8 +207,7 @@ func (m *Method) handle(req eap.Packet, raw []byte, sess *eap.Session) (*eap.Pac
 	case eapaka.SubtypeNotification:
 		return m.handleNotification(akaReq, raw, sess)
 	case eapaka.SubtypeReauthentication:
-		// ツールがまだ対応していない（Phase 5 で対応する）
-		return nil, fmt.Errorf("aka: unsupported subtype %d", akaReq.Subtype)
+		return m.handleReauth(akaReq, raw, sess)
 	default:
 		// 未定義の Subtype や、ピアからしか送らない Subtype（Authentication-Reject など）
 		sess.Conformance.Report("A-16", "unexpected subtype %d in EAP-Request", akaReq.Subtype)

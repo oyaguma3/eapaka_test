@@ -61,8 +61,9 @@ func (m *Method) processEncrData(req *eapaka.Packet, kEncr []byte, sess *eap.Ses
 		case *eapaka.AtNextPseudonym:
 			m.receivePseudonym(v.Pseudonym, req.Type, sess)
 		case *eapaka.AtNextReauthId:
-			// 再認証 ID の保存と利用は Phase 5 で扱う
+			// 鍵がそろった後に、次回の再認証コンテキストとして置く
 			sess.Obs.NextReauthID = true
+			m.s.nextReauthID = v.Identity
 		}
 	}
 	return nil, false, nil

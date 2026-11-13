@@ -104,10 +104,11 @@ func setupPeer(cfg config.Config, tc testcase.Case) (*eap.Peer, idstore.Store, e
 			return nil, nil, fmt.Errorf("identity store reset: %w", err)
 		}
 	}
-	if tc.Identity, err = selectIdentity(tc, merged, ids); err != nil {
+	var reauth *selectedReauth
+	if tc.Identity, reauth, err = selectIdentity(tc, merged, ids); err != nil {
 		return nil, nil, err
 	}
-	peer, err := buildPeer(cfg, tc, store, ids)
+	peer, err := buildPeer(cfg, tc, store, ids, reauth)
 	if err != nil {
 		return nil, nil, fmt.Errorf("build peer: %w", err)
 	}

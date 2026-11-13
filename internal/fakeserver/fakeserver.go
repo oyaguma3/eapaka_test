@@ -69,6 +69,9 @@ type Config struct {
 	KnownPseudonyms []string
 	// Checkcode が true なら、Challenge に AT_CHECKCODE を入れる。
 	Checkcode bool
+	// IssueReauthID が空でなければ、フル認証と再認証で次回の再認証 ID を発行する。
+	// ID は「IssueReauthID＋通し番号@fake.example」。使った再認証 ID は無効にする。
+	IssueReauthID string
 
 	Faults Faults
 }
@@ -109,13 +112,19 @@ type Faults struct {
 	RequestAfterPeerError            bool // A-10: ピアの Client-Error / Authentication-Reject の後に Challenge を送る
 
 	// 仮名と AT_ENCR_DATA（RFC 4187 §4.1・§10.12）
-	AnyIDTwice           bool // A-01: AT_ANY_ID_REQ を 2 回送る
-	FixedIV              bool // A-02: AT_IV を固定値にする
-	NonZeroPadding       bool // A-05: AT_PADDING を 0 以外で埋める
-	PlainNextPseudonym   bool // A-06: AT_NEXT_PSEUDONYM を暗号化せずに送る
-	ResultIndInEncr      bool // A-07: AT_RESULT_IND を AT_ENCR_DATA の中に入れる
-	WrongCheckcode       bool // A-19: AT_CHECKCODE を壊す
-	IgnoreResponseResult bool // ピアの応答の RES と MAC を確かめずに成功させる
+	AnyIDTwice         bool // A-01: AT_ANY_ID_REQ を 2 回送る
+	FixedIV            bool // A-02: AT_IV を固定値にする
+	NonZeroPadding     bool // A-05: AT_PADDING を 0 以外で埋める
+	PlainNextPseudonym bool // A-06: AT_NEXT_PSEUDONYM を暗号化せずに送る
+	ResultIndInEncr    bool // A-07: AT_RESULT_IND を AT_ENCR_DATA の中に入れる
+	WrongCheckcode     bool // A-19: AT_CHECKCODE を壊す
+
+	// 高速再認証（RFC 4187 §5）
+	FixedNonceS                  bool // A-03: AT_NONCE_S を固定値にする
+	StaleCounter                 bool // A-04: 再認証の AT_COUNTER を増やさない
+	IdentityAfterCounterTooSmall bool // A-11: AT_COUNTER_TOO_SMALL の後に AKA-Identity を送る
+	PseudonymInReauth            bool // A-06: 再認証の要求に AT_NEXT_PSEUDONYM を入れる
+	IgnoreResponseResult         bool // ピアの応答の RES と MAC を確かめずに成功させる
 }
 
 // Event は疑似サーバが受け取った EAP-Response の記録。
@@ -132,6 +141,8 @@ type Server struct {
 
 	mu       sync.Mutex
 	sessions map[string]*session
+	reauths  map[string]*reauthCtx // 発行した再認証 ID ごとのコンテキスト
+	reauthN  int
 	sqn      uint64
 	events   []Event
 }
@@ -148,6 +159,11 @@ type session struct {
 	switched bool
 
 	kEncr        []byte
+	mk, kRe      []byte // 再認証の鍵導出に使う
+	nextReauthID string // この交換で発行した再認証 ID
+	reauth       *reauthCtx
+	nonceS       []byte
+	counter      uint16
 	identityMsgs [][]byte // AKA-Identity の Request / Response（AT_CHECKCODE 用）
 	idRounds     int
 
@@ -180,7 +196,7 @@ func Start(cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{cfg: cfg, conn: conn, sessions: map[string]*session{}, sqn: cfg.SQN}
+	s := &Server{cfg: cfg, conn: conn, sessions: map[string]*session{}, reauths: map[string]*reauthCtx{}, sqn: cfg.SQN}
 	s.srv = &radius.PacketServer{
 		Handler:      radius.HandlerFunc(s.serve),
 		SecretSource: radius.StaticSecretSource([]byte(cfg.Secret)),
@@ -292,6 +308,8 @@ func (s *Server) handle(req *radius.Packet) reply {
 		return s.challenge(sess, state, nil)
 	case eapaka.SubtypeChallenge:
 		return s.challengeResponse(sess, state, raw, akaPkt)
+	case eapaka.SubtypeReauthentication:
+		return s.reauthResponse(sess, state, raw, akaPkt)
 	case eapaka.SubtypeNotification:
 		switch sess.stage {
 		case "success-notify":
@@ -344,7 +362,15 @@ func (s *Server) startSession(pkt eap.Packet) reply {
 
 // firstRequest は、AKA-Identity の要求か、最初の Challenge を送る。
 func (s *Server) firstRequest(sess *session, state []byte) reply {
+	if ctx := s.reauths[sess.identity]; ctx != nil {
+		delete(s.reauths, sess.identity) // 再認証 ID は 1 回だけ使える
+		return s.reauthRequest(sess, state, ctx)
+	}
 	kind := s.cfg.IdentityRequest
+	if strings.HasPrefix(sess.identity, "4") || strings.HasPrefix(sess.identity, "8") {
+		// 知らない（使用済みの）再認証 ID には、フル認証用の ID を求める（RFC 4187 §4.1.7）
+		kind = "fullauth"
+	}
 	if user, _, _ := strings.Cut(sess.identity, "@"); (strings.HasPrefix(user, "2") || strings.HasPrefix(user, "7")) &&
 		!slices.Contains(s.cfg.KnownPseudonyms, user) {
 		kind = "permanent"
@@ -436,6 +462,7 @@ func (s *Server) challengeResponse(sess *session, state, raw []byte, resp *eapak
 		_, ok := a.(*eapaka.AtResultInd)
 		return ok
 	})
+	s.registerReauth(sess, 0)
 	f := s.cfg.Faults
 	if (useResultInd && !f.AcceptWithoutSuccessNotification) || f.SuccessNotifyWithoutResultInd {
 		sess.stage = "success-notify"
@@ -515,7 +542,7 @@ func (s *Server) challenge(sess *session, state []byte, kdfAttrs []eapaka.Attrib
 			panic(err)
 		}
 		keys := eapaka.DeriveKeysAKAPrime(sess.identity, ckp, ikp)
-		sess.kAut, sess.msk, sess.kEncr = keys.K_aut, keys.MSK, keys.K_encr
+		sess.kAut, sess.msk, sess.kEncr, sess.kRe = keys.K_aut, keys.MSK, keys.K_encr, keys.K_re
 		if f.EmptyKdfInput {
 			// go-eapaka は空のネットワーク名を組み立てないので、値（長さ 0）を直接入れる
 			attrs = append(attrs, &eapaka.GenericAttribute{AttrType: eapaka.AT_KDF_INPUT, Data: []byte{0, 0}})
@@ -532,7 +559,7 @@ func (s *Server) challenge(sess *session, state []byte, kdfAttrs []eapaka.Attrib
 		attrs = append(attrs, kdfAttrs...)
 	} else {
 		keys := eapaka.DeriveKeysAKA(sess.identity, ck, ik)
-		sess.kAut, sess.msk, sess.kEncr = keys.K_aut, keys.MSK, keys.K_encr
+		sess.kAut, sess.msk, sess.kEncr, sess.mk = keys.K_aut, keys.MSK, keys.K_encr, keys.MK
 	}
 	if sess.method == eapaka.TypeAKA && s.cfg.Bidding != "" {
 		b := &eapaka.AtBidding{}
@@ -735,6 +762,10 @@ func (s *Server) encrAttrs(sess *session) []eapaka.Attribute {
 	if f.ResultIndInEncr {
 		inner = append(inner, &eapaka.AtResultInd{})
 	}
+	if s.cfg.IssueReauthID != "" {
+		sess.nextReauthID = s.newReauthID()
+		inner = append(inner, &eapaka.AtNextReauthId{Identity: sess.nextReauthID})
+	}
 	if len(inner) == 0 {
 		return plain
 	}
@@ -783,4 +814,123 @@ func encryptWithBadPadding(kEncr, iv []byte, attrs []eapaka.Attribute) ([]byte, 
 	out := make([]byte, len(plain))
 	cipher.NewCBCEncrypter(block, iv).CryptBlocks(out, plain)
 	return out, nil
+}
+
+// reauthCtx はサーバ側の再認証コンテキスト。
+type reauthCtx struct {
+	method               uint8
+	mk, kRe, kEncr, kAut []byte
+	counter              uint16 // 最後に使った AT_COUNTER
+}
+
+func (s *Server) newReauthID() string {
+	s.reauthN++
+	return fmt.Sprintf("%s%d@fake.example", s.cfg.IssueReauthID, s.reauthN)
+}
+
+// registerReauth は、認証が成功した交換で発行した再認証 ID を登録する。
+func (s *Server) registerReauth(sess *session, counter uint16) {
+	if sess.nextReauthID == "" {
+		return
+	}
+	s.reauths[sess.nextReauthID] = &reauthCtx{method: sess.method, mk: sess.mk, kRe: sess.kRe, kEncr: sess.kEncr, kAut: sess.kAut, counter: counter}
+}
+
+// reauthRequest は EAP-Request/AKA-Reauthentication を送る（RFC 4187 §9.7）。
+func (s *Server) reauthRequest(sess *session, state []byte, ctx *reauthCtx) reply {
+	f := s.cfg.Faults
+	sess.method, sess.reauth = ctx.method, ctx
+	sess.kAut, sess.kEncr, sess.mk, sess.kRe = ctx.kAut, ctx.kEncr, ctx.mk, ctx.kRe
+	sess.counter = ctx.counter + 1
+	if f.StaleCounter {
+		sess.counter = ctx.counter
+	}
+	sess.nonceS = make([]byte, 16)
+	if f.FixedNonceS {
+		copy(sess.nonceS, "fixed-nonce-s-01")
+	} else {
+		_, _ = rand.Read(sess.nonceS)
+	}
+	var rk eapaka.ReauthKeys
+	var err error
+	if ctx.method == eapaka.TypeAKA {
+		rk, err = eapaka.DeriveReauthKeysAKA(sess.identity, sess.counter, sess.nonceS, ctx.mk)
+	} else {
+		rk, err = eapaka.DeriveReauthKeysAKAPrime(sess.identity, sess.counter, sess.nonceS, ctx.kRe)
+	}
+	if err != nil {
+		panic(err)
+	}
+	sess.msk = rk.MSK
+	inner := []eapaka.Attribute{&eapaka.AtCounter{Counter: sess.counter}, &eapaka.AtNonceS{NonceS: sess.nonceS}}
+	if s.cfg.IssueReauthID != "" {
+		sess.nextReauthID = s.newReauthID()
+		inner = append(inner, &eapaka.AtNextReauthId{Identity: sess.nextReauthID})
+	}
+	if f.PseudonymInReauth {
+		inner = append(inner, &eapaka.AtNextPseudonym{Pseudonym: "2inreauth"})
+	}
+	iv := eapaka.NewIV()
+	enc, err := eapaka.EncryptAttributes(sess.kEncr, iv, inner)
+	if err != nil {
+		panic(err)
+	}
+	req := &eapaka.Packet{
+		Code: eapaka.CodeRequest, Identifier: sess.lastID + 1, Type: sess.method, Subtype: eapaka.SubtypeReauthentication,
+		Attributes: []eapaka.Attribute{&eapaka.AtIv{IV: iv}, &eapaka.AtEncrData{EncryptedData: enc}, &eapaka.AtMac{MAC: make([]byte, 16)}},
+	}
+	if err := req.CalculateAndSetMac(sess.kAut); err != nil {
+		panic(err)
+	}
+	b, err := req.Marshal()
+	if err != nil {
+		panic(err)
+	}
+	return reply{code: radius.CodeAccessChallenge, eap: b, state: state}
+}
+
+// reauthResponse は EAP-Response/AKA-Reauthentication を検証する（RFC 4187 §9.8、§5.5）。
+func (s *Server) reauthResponse(sess *session, state, raw []byte, resp *eapaka.Packet) reply {
+	if sess.reauth == nil {
+		return s.failure(sess, sess.lastID, state)
+	}
+	if ok, err := eapaka.VerifyMacRaw(raw, sess.kAut, sess.nonceS); err != nil || !ok {
+		return s.failure(sess, sess.lastID, state)
+	}
+	var iv, enc []byte
+	for _, a := range resp.Attributes {
+		switch v := a.(type) {
+		case *eapaka.AtIv:
+			iv = v.IV
+		case *eapaka.AtEncrData:
+			enc = v.EncryptedData
+		}
+	}
+	inner, err := eapaka.DecryptAttributes(sess.kEncr, iv, enc)
+	if err != nil {
+		return s.failure(sess, sess.lastID, state)
+	}
+	var counter *uint16
+	tooSmall := false
+	for _, a := range inner {
+		switch v := a.(type) {
+		case *eapaka.AtCounter:
+			counter = &v.Counter
+		case *eapaka.AtCounterTooSmall:
+			tooSmall = true
+		}
+	}
+	if counter == nil || *counter != sess.counter {
+		return s.failure(sess, sess.lastID, state)
+	}
+	if tooSmall {
+		// AKA-Identity を挟まずにフル認証の Challenge を送る（§5.5）
+		sess.reauth, sess.nextReauthID = nil, ""
+		if s.cfg.Faults.IdentityAfterCounterTooSmall {
+			return s.identityRequest(sess, state, "any")
+		}
+		return s.challenge(sess, state, nil)
+	}
+	s.registerReauth(sess, sess.counter)
+	return s.success(sess, state)
 }

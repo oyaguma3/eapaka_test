@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/oyaguma3/eapaka_test/conformance"
+	"github.com/oyaguma3/eapaka_test/idstore"
 )
 
 // Session holds outer/inner identity data for the current EAP session.
@@ -88,6 +89,12 @@ type Observations struct {
 	NextReauthID  bool
 	// Checkcode は AT_CHECKCODE の検証結果（"verified"、"mismatch"、受け取らなければ ""）。
 	Checkcode string
+	// AuthType は行った認証の種類（"full" か "reauth"）。
+	AuthType string
+	// ReauthCounter は、再認証で受け入れた AT_COUNTER。
+	ReauthCounter uint16
+	// CounterTooSmallSent は、AT_COUNTER_TOO_SMALL を送ったこと（RFC 4187 §5.5）。
+	CounterTooSmallSent bool
 }
 
 // NotificationObs は AKA-Notification の記録。Code は S・P ビットを含む 16 bit の値。
@@ -274,4 +281,8 @@ func (p *Peer) nakFor(t uint8) ([]uint8, bool) {
 type PendingIDs struct {
 	Method    uint8  // 発行したメソッドの EAP タイプ
 	Pseudonym string // AT_NEXT_PSEUDONYM（レルムなし）。空なら受け取っていない
+	// AuthDone は、ピアとしてフル認証か再認証を終えたこと。このとき Reauth で再認証の状態を置き換える。
+	AuthDone bool
+	// Reauth は次回の再認証コンテキスト。nil なら再認証の状態を破棄する（RFC 4187 §5.3）。
+	Reauth *idstore.Reauth
 }

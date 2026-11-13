@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/oyaguma3/eapaka_test/conformance"
 	"github.com/oyaguma3/eapaka_test/eap"
+	"github.com/oyaguma3/eapaka_test/idstore"
 	"github.com/oyaguma3/eapaka_test/sqnstore"
 
 	eapaka "github.com/oyaguma3/go-eapaka"
@@ -171,6 +173,15 @@ func (m *Method) handleChallenge(req *eapaka.Packet, raw []byte, sess *eap.Sessi
 	}
 	m.s.keys = keys
 	sess.MSK = keys.msk
+	sess.Obs.AuthType = "full"
+	// 認証が成功したら、受け取った再認証 ID で再認証の状態を置き換える（なければ破棄する）
+	sess.Pending.Method, sess.Pending.AuthDone, sess.Pending.Reauth = req.Type, true, nil
+	if m.s.nextReauthID != "" {
+		sess.Pending.Reauth = &idstore.Reauth{
+			Identity: m.s.nextReauthID, MK: keys.mk, KRe: keys.kRe, KEncr: keys.kEncr, KAut: keys.kAut,
+			CounterFloor: 1, NetName: netName, IssuedAt: time.Now().UTC(),
+		}
+	}
 	switch action {
 	case FaultCorruptMAC:
 		mac.MAC[len(mac.MAC)-1] ^= 0xff

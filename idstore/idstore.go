@@ -45,15 +45,54 @@ type Pseudonym struct {
 	IssuedAt time.Time `json:"issued_at"`
 }
 
+// Reauth は高速再認証のコンテキスト（RFC 4187 §5、RFC 9048 §3.3）。鍵を含むので、
+// ファイルは 0600 で保存し、ログやトレースには出さない。
+type Reauth struct {
+	Identity     string    `json:"identity"`           // AT_NEXT_REAUTH_ID（完全な NAI）
+	MK           HexBytes  `json:"mk,omitzero"`        // EAP-AKA の MK（20 バイト）
+	KRe          HexBytes  `json:"k_re,omitzero"`      // EAP-AKA' の K_re（32 バイト）
+	KEncr        HexBytes  `json:"k_encr"`             // フル認証の K_encr（再認証でもそのまま使う）
+	KAut         HexBytes  `json:"k_aut"`              // フル認証の K_aut（再認証でもそのまま使う）
+	CounterFloor uint16    `json:"counter_floor"`      // 受け入れる AT_COUNTER の下限
+	NetName      string    `json:"net_name,omitempty"` // EAP-AKA' のネットワーク名（違えば再認証しない）
+	IssuedAt     time.Time `json:"issued_at"`
+}
+
+// HexBytes は JSON で 16 進文字列として表すバイト列。
+type HexBytes []byte
+
+func (b HexBytes) MarshalText() ([]byte, error) {
+	return []byte(hex.EncodeToString(b)), nil
+}
+
+func (b *HexBytes) UnmarshalText(text []byte) error {
+	v, err := hex.DecodeString(string(text))
+	if err != nil {
+		return err
+	}
+	*b = v
+	return nil
+}
+
 // History は、再利用してはならない値のハッシュ（SHA-256 の 16 進）の履歴。
 type History struct {
-	IVSHA256 []string `json:"iv_sha256,omitempty"`
+	IVSHA256     []string `json:"iv_sha256,omitempty"`
+	NonceSSHA256 []string `json:"nonce_s_sha256,omitempty"`
 }
 
 // Entry は IMSI とメソッドの組ごとの記録。
 type Entry struct {
 	Pseudonym *Pseudonym `json:"pseudonym,omitempty"`
-	History   History    `json:"history,omitzero"`
+	Reauth    *Reauth    `json:"reauth,omitempty"`
+	// UsedReauth は直近に使った再認証コンテキスト。使うときに Reauth から移す
+	// （交換が完了しなくても再利用しない、RFC 4187 §4.1.1.8）。再利用の異常系の注入に使う。
+	UsedReauth *Reauth `json:"used_reauth,omitempty"`
+	History    History `json:"history,omitzero"`
+}
+
+// AddNonceS は AT_NONCE_S のハッシュを履歴に足し、既に履歴にあったかを返す（規則 A-03）。
+func (e *Entry) AddNonceS(nonce []byte) (reused bool) {
+	return addHash(&e.History.NonceSSHA256, nonce)
 }
 
 // AddIV は AT_IV のハッシュを履歴に足し、既に履歴にあったかを返す。

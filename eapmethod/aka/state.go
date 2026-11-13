@@ -30,6 +30,11 @@ type akaSession struct {
 	identityMsgs       [][]byte // AKA-Identity の Request / Response（送受信したままの形。AT_CHECKCODE 用）
 	permanentRequested bool     // AT_PERMANENT_ID_REQ を受けた（規則 A-01）
 
+	nextReauthID        string // フル認証の AT_ENCR_DATA で受け取った AT_NEXT_REAUTH_ID
+	reauthed            bool   // 再認証を終えた（その後の P=0 の通知は暗号化された AT_COUNTER を持つ）
+	counter             uint16 // 再認証で受け入れた AT_COUNTER
+	counterTooSmallSent bool   // AT_COUNTER_TOO_SMALL を送った（規則 A-11）
+
 	resultInd     bool // AT_RESULT_IND をサーバとピアの両方が使った
 	notifications int  // 受け取った AKA-Notification の数
 	peerError     bool // Client-Error か Authentication-Reject を送った

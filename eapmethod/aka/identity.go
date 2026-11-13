@@ -16,6 +16,20 @@ func (m *Method) handleIdentity(req *eapaka.Packet, raw []byte, sess *eap.Sessio
 	kind := identityRequestKind(req)
 	sess.Obs.IdentityRequests = append(sess.Obs.IdentityRequests, kind)
 	rec := sess.Conformance
+	if m.s.counterTooSmallSent {
+		rec.Report("A-11", "AKA-Identity (%s) after AT_COUNTER_TOO_SMALL", kind)
+	}
+	if kind == "fullauth" && m.reauthCtx != nil {
+		// AT_FULLAUTH_ID_REQ には再認証 ID で答えない（RFC 4187 §4.1.5）
+		cur := sess.InnerIdentity
+		if cur == "" {
+			cur = sess.OuterIdentity
+		}
+		if cur == m.reauthCtx.Identity {
+			sess.InnerIdentity = m.generatePermanentIdentity()
+			sess.Warnf("AT_FULLAUTH_ID_REQ: answering with the permanent identity instead of the re-authentication identity")
+		}
+	}
 	switch {
 	case m.s.permanentRequested:
 		rec.Report("A-01", "AKA-Identity (%s) after AT_PERMANENT_ID_REQ", kind)
