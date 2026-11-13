@@ -1,0 +1,12 @@
+# hostapd を RADIUS 認証サーバとして動かす設定（run.sh が @RUN@ と @DIR@ を置き換える）
+driver=none
+interface=as-eapaka
+logger_stdout=-1
+logger_stdout_level=1
+
+radius_server_clients=@DIR@/radius_clients
+radius_server_auth_port=18120
+
+eap_server=1
+eap_user_file=@DIR@/eap_user
+eap_sim_db=unix:@RUN@/hlr_auc_gw.sock

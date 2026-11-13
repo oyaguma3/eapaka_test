@@ -61,6 +61,8 @@ go build -o eapaka_test ./cmd/eapaka_test
   - AT_KDF_INPUT がない・空の場合は、既定で拒否します。従来の動作にするには `eap.aka_prime.empty_kdf_input: fallback` を指定してください。
   - AMF が `sim.amf` と違っていても警告だけにしました。EAP-AKA' では、代わりに分離ビットを確かめます。
 - 異常系の注入（テストケースの `fault`）を追加しました。
+- MSK 照合を追加しました。`expect.mppe.verify_msk: true` を指定すると、MS-MPPE-Send/Recv-Key を復号した値を、ピアが導出した MSK と比べます。
+- hostapd を参照サーバにした相互接続テストの環境を追加しました（`interop/hostapd/`）。EAP-AKA と EAP-AKA' のフル認証で、hostapd 2.12 との MSK 照合が通ることを確かめています。
 
 ## 最近の更新 (2026-02-20)
 

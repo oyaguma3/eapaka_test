@@ -1,0 +1,37 @@
+# interop/hostapd の hostapd（RADIUS 認証サーバ）に向けた設定
+radius:
+  server_addr: "127.0.0.1:18120"
+  secret: "testing123"
+  timeout_ms: 1000
+  retries: 2
+
+radius_attrs:
+  nas_identifier: "eapaka_test"
+  called_station_id: "aa-bb-cc-dd-ee-ff:MySSID"
+  calling_station_id: "00-11-22-33-44-55"
+
+eap:
+  method_mismatch_policy: "warn"
+  permanent_id_policy: "always"
+  aka_prime:
+    # hostapd の EAP-AKA' サーバはネットワーク名 "WLAN" を使う
+    net_name: "WLAN"
+    net_name_check: "warn"
+
+identity:
+  realm: "wlan.mnc010.mcc440.3gppnetwork.org"
+
+# interop/hostapd/milenage_db と同じ値
+sim:
+  imsi: "440100123456789"
+  ki: "00112233445566778899aabbccddeeff"
+  opc: "ffeeddccbbaa99887766554433221100"
+  amf: "8000"
+  sqn_initial_hex: "000000000000"
+
+# hlr_auc_gw は起動のたびに milenage_db の SQN から数え直すので、ピアの SQN は実行ごとに初期化する
+sqn_store:
+  mode: "memory"
+
+mppe:
+  mapping: "rfc5216"

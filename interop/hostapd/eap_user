@@ -1,0 +1,9 @@
+# ID の先頭文字で EAP メソッドを決める（3GPP TS 23.003 の慣行。hostapd の例も同じ）
+# 0: AKA の永続 ID、2: AKA の仮名、4: AKA の再認証 ID
+# 6: AKA' の永続 ID、7: AKA' の仮名、8: AKA' の再認証 ID
+"0"*	AKA
+"2"*	AKA
+"4"*	AKA
+"6"*	AKA'
+"7"*	AKA'
+"8"*	AKA'

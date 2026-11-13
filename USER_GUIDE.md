@@ -64,6 +64,9 @@ conformance:
   default_must: "fail"
   default_should: "warn"
   rules: {}
+
+mppe:
+  mapping: "rfc5216"
 ```
 
 Main fields:
@@ -105,6 +108,8 @@ Main fields:
   - `default_should`: handling of SHOULD rules, `fail|warn|off` (default: warn)
   - `rules`: per-rule overrides (e.g. `{ R-02: off }`)
 
+- `mppe.mapping`: how MS-MPPE keys map to the MSK, `rfc5216` (default; Recv-Key = MSK[0:32], Send-Key = MSK[32:64]) or `swapped`
+
 ## 4. Test Case File
 
 Example: `testdata/cases/success_aka.yaml`
@@ -141,6 +146,7 @@ Main fields:
   - `reject_hint_check_presence`: require `Reply-Message` when `reject_hint_contains` is used (default: false)
   - `mppe.require_present`: require MPPE attributes
   - `mppe.send_key` / `mppe.recv_key`: exact match (`hex:` or `b64:`)
+  - `mppe.verify_msk`: decrypt the MS-MPPE keys and require them to match the MSK derived by the peer (section 6)
 
 - `trace.*`: tracing
   - `level`: `normal|verbose`
@@ -167,6 +173,8 @@ Verbose trace warns when format is invalid.
 - Access-Accept must include `MS-MPPE-Send-Key` and `MS-MPPE-Recv-Key`
 - Default operation is `require_present: true` (presence check)
 - Exact value matching is intended only for fixed test vectors
+- With `verify_msk: true`, the tool decrypts the MS-MPPE keys and compares them with the MSK derived by the peer, using `mppe.mapping` in the config. Unlike the encrypted values, which change with the Request Authenticator and Salt, this works for every run. The trace shows only whether they match; key values are never written, even with `--unsafe-log`.
+- Interop testing against hostapd is described in `interop/hostapd/README.md`.
 
 ## 7. Common Usage
 

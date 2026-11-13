@@ -64,6 +64,9 @@ conformance:
   default_must: "fail"
   default_should: "warn"
   rules: {}
+
+mppe:
+  mapping: "rfc5216"
 ```
 
 主な項目:
@@ -105,6 +108,8 @@ conformance:
   - `default_should`: SHOULD の規則の扱い `fail|warn|off`（既定: warn）
   - `rules`: 規則 ID ごとの上書き（例: `{ R-02: off }`）
 
+- `mppe.mapping`: MS-MPPE 鍵と MSK の対応。`rfc5216`（既定。Recv-Key = MSK[0:32]、Send-Key = MSK[32:64]）か `swapped`
+
 ## 4. テストケース（case）
 
 例: `testdata/cases/success_aka.yaml`
@@ -141,6 +146,7 @@ expect:
   - `reject_hint_check_presence`: `reject_hint_contains` 使用時に Reply-Message 必須とするか（既定: false）
   - `mppe.require_present`: MPPE 属性の存在確認
   - `mppe.send_key` / `mppe.recv_key`: `hex:` / `b64:` で固定値一致
+  - `mppe.verify_msk`: MS-MPPE 鍵を復号し、ピアが導出した MSK と一致することを求める（第 6 章）
 
 - `trace.*`: トレース
   - `level`: `normal|verbose`
@@ -167,6 +173,8 @@ verbose trace では形式不正時に警告が出ます。
 - Access-Accept には `MS-MPPE-Send-Key` / `MS-MPPE-Recv-Key` が必須
 - 既定の運用は `require_present: true`（存在確認）
 - 値一致検証は固定テストデータ運用時のみ使用
+- `verify_msk: true` を指定すると、MS-MPPE 鍵を復号した値を、ピアが導出した MSK と比べます。対応付けは config の `mppe.mapping` で決めます。暗号化された値は Request Authenticator と Salt で毎回変わりますが、この方法は毎回の値に左右されずに確かめられます。トレースには一致したかどうかだけを出し、鍵の値は `--unsafe-log` でも出しません。
+- hostapd を相手にした相互接続テストの手順は `interop/hostapd/README.md` にあります。
 
 ## 7. よくある使い方
 

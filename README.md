@@ -62,6 +62,8 @@ If you need packet capture in WSL, see section 9 in `USER_GUIDE.md`.
   - A missing or empty AT_KDF_INPUT is rejected by default. Set `eap.aka_prime.empty_kdf_input: fallback` to keep the old behavior.
   - An AMF different from `sim.amf` is now only a warning. For EAP-AKA', the AMF separation bit is checked instead.
 - Added fault injection (`fault` in testcases).
+- Added MSK verification: `expect.mppe.verify_msk: true` decrypts MS-MPPE-Send/Recv-Key and compares them with the MSK derived by the peer.
+- Added an interop environment with hostapd as the reference server (`interop/hostapd/`). Full authentication with EAP-AKA and EAP-AKA' passes MSK verification against hostapd 2.12.
 
 ## Recent Updates (2026-02-20)
 
