@@ -88,6 +88,9 @@ mppe:
   - `permanent_id_policy`: `always|conservative|deny`
   - `aka_prime.net_name`: AKA' の Network Name。`net_name_check` での照合と、`empty_kdf_input: fallback` のときの補完に使う
   - `aka_prime.net_name_check`: `off|warn|reject`（既定: off）。AT_KDF_INPUT と `net_name` をコロン区切りのフィールドごとに比べる。不一致なら warn は警告だけ、reject は Authentication-Reject
+  - `method_preference`: 使ってよい EAP メソッドの希望順（例: `[50, 23]`。既定は登録済みのすべてを AKA' → AKA の順）。外れたメソッドを提示されたら Nak で希望を返す
+  - `nak`: 強制 Nak。`{ on: [50], propose: [23] }` なら、AKA' を提示されたときに AKA を希望する Nak を返す（サーバを AKA に誘導する bidding down の試験用）
+  - `bidding_policy`: `reject|ignore`（既定: reject）。EAP-AKA の Challenge の AT_BIDDING に D ビットが立っていたら、reject は Authentication-Reject を返す（RFC 9048 §4）。ignore は AKA にしか対応しないピアを模擬する
   - `aka_prime.empty_kdf_input`: `reject|fallback`（既定: reject）。AT_KDF_INPUT がない・空のときに Authentication-Reject を返すか、`net_name` で補って続けるか。どちらでも違反 A-13 として記録する
 
 - `identity.realm`: Permanent ID 生成に使用する realm
@@ -135,7 +138,7 @@ expect:
 - `radius.*`: config を上書きする RADIUS 設定（任意）
 - `eap.*`: config を上書きする EAP 設定（任意）
   - `permanent_identity_override`: Permanent ID の完全指定
-  - `aka_prime.net_name_check` / `aka_prime.empty_kdf_input`: config と同じ
+  - `aka_prime.net_name_check` / `aka_prime.empty_kdf_input` / `method_preference` / `nak` / `bidding_policy`: config と同じ
 
 - `sqn.reset`: SQN 初期化
 - `sqn.persist`: 永続化を行うか（未指定は true）
@@ -147,6 +150,7 @@ expect:
   - `mppe.require_present`: MPPE 属性の存在確認
   - `mppe.send_key` / `mppe.recv_key`: `hex:` / `b64:` で固定値一致
   - `mppe.verify_msk`: MS-MPPE 鍵を復号し、ピアが導出した MSK と一致することを求める（第 6 章）
+  - `bidding`: AT_BIDDING の期待値。`present`（受け取ったか）、`d_bit`、`action`（ピアの動作 `reject|ignore`）。省略した項目は検査しない
 
 - `trace.*`: トレース
   - `level`: `normal|verbose`
@@ -247,6 +251,7 @@ sudo usermod -aG wireshark $USER
 | R-05 | メソッドの完了前や失敗後に成功を通知しない | RFC 3748 §4.2、RFC 4187 §6.2 | MUST |
 | R-06 | メソッドの途中で EAP タイプを切り替えない | RFC 3748 §2.1 | MUST |
 | R-07 | MS-MPPE 鍵の Salt の最上位ビットが 1 で、Send/Recv で重複しない | RFC 2548 §2.4.2 | MUST |
+| A-09 | AT_BIDDING を EAP-AKA' のメッセージに入れない | RFC 9048 §4 | MUST |
 | A-12 | EAP-AKA' の AUTN の AMF 分離ビットが 1 | RFC 9048 §3.3 | MUST |
 | A-13 | AT_KDF_INPUT があり、ネットワーク名が空でない | RFC 9048 §3.1 | MUST |
 | A-16 | EAP-AKA/AKA' の要求の形式が正しい（既知の Subtype、未知のスキップ不可属性がない、必須属性がある） | RFC 4187 §6.3.1・§8.1 | MUST |
@@ -273,6 +278,8 @@ conformance violations=1 fail=0 warn=1 ids=R-02
   - AUTN が不正
   - EAP-AKA' で AMF の分離ビットが 0
   - 対応できる KDF がない
+- EAP-AKA の Challenge の AT_BIDDING に D ビットが立っていると、`bidding_policy: reject`（既定）では Authentication-Reject を返します。判定は AT_MAC を検証した後に行い、SQN はその後に保存します。
+- 使わないメソッドを提示されたら、最初の応答として Nak を返して希望するメソッドを伝えます。Nak で別のメソッドに切り替わったときは、AT_IDENTITY の先頭文字をそのメソッドの永続 ID（AKA は 0、AKA' は 6）に合わせます。
 - EAP-AKA' の KDF 交渉に対応しています。offer の先頭の KDF に対応していなければ AT_KDF だけを返し、サーバの再提示を確かめます。
 
 ### 異常系の注入

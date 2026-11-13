@@ -2,6 +2,7 @@ package aka
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/oyaguma3/eapaka_test/eap"
 
@@ -45,6 +46,14 @@ func (m *Method) handleIdentity(req *eapaka.Packet, sess *eap.Session) (*eap.Pac
 	}
 	if inner == "" {
 		return nil, fmt.Errorf("aka: inner identity is required")
+	}
+	// Nak などで別のメソッドに切り替わったときは、そのメソッドの永続 ID の先頭文字
+	// （AKA は 0、AKA' は 6）に合わせる。鍵の導出にもこの ID を使う
+	if other := permanentPrefix(otherMethod(m.methodType)); other != "" && strings.HasPrefix(inner, other) {
+		adjusted := permanentPrefix(m.methodType) + inner[1:]
+		sess.Warnf("identity prefix changed from %q to %q for EAP type %d", other, permanentPrefix(m.methodType), m.methodType)
+		inner = adjusted
+		sess.InnerIdentity = adjusted
 	}
 	resp := &eapaka.Packet{
 		Code:       eapaka.CodeResponse,
@@ -130,4 +139,12 @@ func defaultOuterUpdate(value *bool) bool {
 		return true
 	}
 	return *value
+}
+
+// otherMethod は、EAP-AKA と EAP-AKA' のうち、もう一方のタイプを返す。
+func otherMethod(methodType uint8) uint8 {
+	if methodType == eap.TypeAKA {
+		return eap.TypeAKAPrime
+	}
+	return eap.TypeAKA
 }

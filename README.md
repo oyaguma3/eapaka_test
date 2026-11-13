@@ -63,6 +63,7 @@ If you need packet capture in WSL, see section 9 in `USER_GUIDE.md`.
   - An AMF different from `sim.amf` is now only a warning. For EAP-AKA', the AMF separation bit is checked instead.
 - Added fault injection (`fault` in testcases).
 - Added MSK verification: `expect.mppe.verify_msk: true` decrypts MS-MPPE-Send/Recv-Key and compares them with the MSK derived by the peer.
+- Added AT_BIDDING handling (RFC 9048 §4) and EAP Nak with method preference and forced Nak, which can steer a server to EAP-AKA for bidding-down tests. Verified against hostapd 2.12.
 - Added an interop environment with hostapd as the reference server (`interop/hostapd/`). Full authentication with EAP-AKA and EAP-AKA' passes MSK verification against hostapd 2.12.
 
 ## Recent Updates (2026-02-20)

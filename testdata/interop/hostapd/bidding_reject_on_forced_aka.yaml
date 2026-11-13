@@ -1,0 +1,12 @@
+version: 1
+name: bidding_reject_on_forced_aka
+description: Nak でサーバを EAP-AKA に誘導すると AT_BIDDING の D ビットが立っており、ピアは Authentication-Reject で断る（RFC 9048 §4）
+identity: "6440100123456789@wlan.mnc010.mcc440.3gppnetwork.org"
+eap:
+  nak: { on: [50], propose: [23] }
+  bidding_policy: reject
+expect:
+  result: reject
+  bidding: { present: true, d_bit: true, action: reject }
+trace:
+  level: verbose

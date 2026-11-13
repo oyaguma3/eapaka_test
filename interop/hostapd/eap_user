@@ -4,6 +4,8 @@
 "0"*	AKA
 "2"*	AKA
 "4"*	AKA
-"6"*	AKA'
+# AKA' の永続 ID には AKA も許す（AKA' を先に書くと、AKA の Challenge の AT_BIDDING に D ビットが立つ）。
+# ピアが Nak で AKA を希望したときに、bidding down の試験ができる
+"6"*	AKA',AKA
 "7"*	AKA'
 "8"*	AKA'

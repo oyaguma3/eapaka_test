@@ -262,3 +262,29 @@ func TestNetNameMatches(t *testing.T) {
 		}
 	}
 }
+
+// TestIdentityPrefixFollowsMethod は、AKA' の永続 ID のまま AKA を求められたとき、
+// AKA の永続 ID（先頭 0）で答えることを確かめる。
+func TestIdentityPrefixFollowsMethod(t *testing.T) {
+	method, err := New(Options{MethodType: eap.TypeAKA, IMSI: "440100123456789", KI: make([]byte, 16), OPC: make([]byte, 16), AMF: []byte{0x80, 0}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := &eapaka.Packet{Code: eapaka.CodeRequest, Identifier: 3, Type: eapaka.TypeAKA, Subtype: eapaka.SubtypeIdentity,
+		Attributes: []eapaka.Attribute{&eapaka.AtAnyIdReq{}}}
+	raw, err := req.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	eapReq, err := eap.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess := &eap.Session{OuterIdentity: "6440100123456789@example"}
+	if _, err := method.Handle(eapReq, sess); err != nil {
+		t.Fatal(err)
+	}
+	if sess.InnerIdentity != "0440100123456789@example" {
+		t.Errorf("InnerIdentity = %q", sess.InnerIdentity)
+	}
+}

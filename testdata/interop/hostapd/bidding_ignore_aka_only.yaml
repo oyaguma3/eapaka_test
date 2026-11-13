@@ -1,0 +1,15 @@
+version: 1
+name: bidding_ignore_aka_only
+description: AKA にしか対応しないピアを模擬すると、D ビットが立っていても EAP-AKA で認証が通る
+identity: "6440100123456789@wlan.mnc010.mcc440.3gppnetwork.org"
+eap:
+  nak: { on: [50], propose: [23] }
+  bidding_policy: ignore
+expect:
+  result: accept
+  mppe:
+    require_present: true
+    verify_msk: true
+  bidding: { present: true, d_bit: true, action: ignore }
+trace:
+  level: verbose
