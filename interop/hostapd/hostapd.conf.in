@@ -10,3 +10,6 @@ radius_server_auth_port=18120
 eap_server=1
 eap_user_file=@DIR@/eap_user
 eap_sim_db=unix:@RUN@/hlr_auc_gw.sock
+
+# AT_RESULT_IND を使う（RFC 4187 §6.2）。ピアも使えば、成功の前に成功通知を送る
+eap_sim_aka_result_ind=1

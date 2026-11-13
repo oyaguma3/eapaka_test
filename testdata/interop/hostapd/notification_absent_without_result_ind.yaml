@@ -1,0 +1,14 @@
+version: 1
+name: notification_absent_without_result_ind
+description: ピアが AT_RESULT_IND を使わなければ、成功通知なしで認証が終わる
+identity: "6440100123456789@wlan.mnc010.mcc440.3gppnetwork.org"
+eap:
+  result_ind: false
+expect:
+  result: accept
+  mppe:
+    require_present: true
+    verify_msk: true
+  notification: { present: false }
+trace:
+  level: verbose

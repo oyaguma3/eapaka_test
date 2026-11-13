@@ -1,0 +1,11 @@
+version: 1
+name: notification_failure_before_auth
+description: Challenge 応答の AT_MAC を壊すと、認証前の失敗通知（16384）を受けてから拒否される
+identity: "6440100123456789@wlan.mnc010.mcc440.3gppnetwork.org"
+fault:
+  - { at: challenge_response, action: corrupt_mac }
+expect:
+  result: reject
+  notification: { code: 16384 }
+trace:
+  level: verbose

@@ -1,0 +1,14 @@
+version: 1
+name: notification_success_result_ind
+description: 双方が AT_RESULT_IND を使うと、EAP-Success の前に成功通知（32768）を受ける（RFC 4187 §6.2）
+identity: "0440100123456789@wlan.mnc010.mcc440.3gppnetwork.org"
+eap:
+  result_ind: true
+expect:
+  result: accept
+  mppe:
+    require_present: true
+    verify_msk: true
+  notification: { code: 32768 }
+trace:
+  level: verbose

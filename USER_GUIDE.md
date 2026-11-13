@@ -90,6 +90,7 @@ Main fields:
   - `aka_prime.net_name_check`: `off|warn|reject` (default: off). Compares AT_KDF_INPUT with `net_name` field by field (colon-separated). On mismatch, warn only logs; reject sends Authentication-Reject
   - `method_preference`: allowed EAP methods in order of preference (e.g. `[50, 23]`; default: every registered method, AKA' first). A method outside it gets a Nak with the preferred types
   - `nak`: forced Nak. `{ on: [50], propose: [23] }` answers an AKA' offer with a Nak proposing AKA (for bidding-down tests that steer the server to AKA)
+  - `result_ind`: `true|false` (default: true). Include AT_RESULT_IND in the response when the server sent it (RFC 4187 §6.2). When both sides use it, EAP-Success is accepted only after the success notification
   - `bidding_policy`: `reject|ignore` (default: reject). With the D bit set in AT_BIDDING of an EAP-AKA Challenge, reject sends Authentication-Reject (RFC 9048 §4); ignore acts as an AKA-only peer
   - `aka_prime.empty_kdf_input`: `reject|fallback` (default: reject). When AT_KDF_INPUT is missing or empty, send Authentication-Reject or continue with `net_name`. Either way it is recorded as violation A-13
 
@@ -138,7 +139,7 @@ Main fields:
 - `radius.*`: optional per-case override for radius settings
 - `eap.*`: optional per-case override for eap settings
   - `permanent_identity_override`: fully override Permanent ID
-  - `aka_prime.net_name_check` / `aka_prime.empty_kdf_input` / `method_preference` / `nak` / `bidding_policy`: same as in config
+  - `aka_prime.net_name_check` / `aka_prime.empty_kdf_input` / `method_preference` / `nak` / `bidding_policy` / `result_ind`: same as in config
 
 - `sqn.reset`: reset SQN
 - `sqn.persist`: whether to persist SQN (default: true)
@@ -150,6 +151,7 @@ Main fields:
   - `mppe.require_present`: require MPPE attributes
   - `mppe.send_key` / `mppe.recv_key`: exact match (`hex:` or `b64:`)
   - `mppe.verify_msk`: decrypt the MS-MPPE keys and require them to match the MSK derived by the peer (section 6)
+  - `notification`: expected AKA-Notification: `code` (the full code with the S and P bits; 32768 for success, 16384 for failure before authentication) and `present`
   - `bidding`: expected AT_BIDDING: `present`, `d_bit` and `action` (the peer's action, `reject|ignore`). Omitted fields are not checked
 
 - `trace.*`: tracing
@@ -251,7 +253,9 @@ The tool can fail a run on server RFC violations even when the result matches th
 | R-05 | No success indication before the method completes or after it failed | RFC 3748 §4.2, RFC 4187 §6.2 | MUST |
 | R-06 | The server does not switch EAP types during a method | RFC 3748 §2.1 | MUST |
 | R-07 | MS-MPPE key Salts have the MSB set and differ between Send and Recv | RFC 2548 §2.4.2 | MUST |
+| A-08 | AKA-Notification: S=0 when P=1, P=0 only after successful authentication, one round per exchange, success only with AT_RESULT_IND | RFC 4187 §6.1, §6.2 | MUST |
 | A-09 | AT_BIDDING is not included in EAP-AKA' messages | RFC 9048 §4 | MUST |
+| A-10 | After the peer's Client-Error or Authentication-Reject the server sends EAP-Failure (no other Request) | RFC 4187 §6.3.1 | MUST |
 | A-12 | The AMF separation bit in EAP-AKA' AUTN is 1 | RFC 9048 §3.3 | MUST |
 | A-13 | AT_KDF_INPUT is present with a non-empty network name | RFC 9048 §3.1 | MUST |
 | A-16 | EAP-AKA/AKA' requests are well-formed (known subtype, no unknown non-skippable attribute, required attributes present) | RFC 4187 §6.3.1, §8.1 | MUST |
@@ -280,6 +284,11 @@ conformance violations=1 fail=0 warn=1 ids=R-02
   - No offered KDF is supported
 - With the D bit set in AT_BIDDING of an EAP-AKA Challenge, `bidding_policy: reject` (default) sends Authentication-Reject. The decision follows the AT_MAC check, and the SQN is saved only afterwards.
 - A method the peer does not want gets a Nak as the first response, proposing the preferred methods. After a Nak switches the method, AT_IDENTITY uses that method's permanent identity prefix (0 for AKA, 6 for AKA').
+- AKA-Notification is answered even for unknown codes.
+  - A P=1 notification (before authentication) gets an empty response without AT_MAC.
+  - A P=0 notification (after authentication) is verified and answered with AT_MAC.
+  - Success after a failure notification, and Access-Accept without the success notification when AT_RESULT_IND was used, are R-05 violations.
+- RFC 3748 Notification (Type 2) gets an empty response, and the displayable message is traced.
 - EAP-AKA' KDF negotiation is supported. If the first offered KDF is not supported, the peer replies with only AT_KDF and validates the server's re-offer.
 
 ### Fault injection
